@@ -452,12 +452,20 @@ export default function EditorGame() {
         const content = response.data?.content;
         if (!content || content.dataType !== "moveObject") return;
         const fields = normalizeMoveFields(content.fields);
+
+        console.log("Chunk fields:", { cx: entry.cx, cy: entry.cy, fields });
+
         const tiles = normalizeMoveVector(fields.tiles).map((tile) =>
           normalizeTileId(clampU8(parseU32Value(tile) ?? 0, 255))
         );
-        const decorations = normalizeMoveVector(fields.decorations ?? []).map(
+        const rawDecorations = fields.decorations;
+        console.log("Raw decorations:", rawDecorations);
+
+        const decorations = normalizeMoveVector(rawDecorations ?? []).map(
           (deco) => normalizeDecoId(clampU8(parseU32Value(deco) ?? 0, 255))
         );
+
+        console.log("Parsed decorations:", decorations);
 
         for (let y = 0; y < CHUNK_SIZE; y++) {
           for (let x = 0; x < CHUNK_SIZE; x++) {
@@ -474,6 +482,8 @@ export default function EditorGame() {
           newOwners[makeChunkKey(entry.cx, entry.cy)] = owner;
         }
       });
+
+      console.log("Final decoGrid:", newDecoGrid);
 
       setGrid(newGrid);
       setDecoGrid(newDecoGrid);

@@ -43,18 +43,34 @@ const TILE_NAMES = [
   "cliff_19",
 ];
 
-// Decoration definitions
-const DECO_ENTRIES: { name: string; kind: DecoKind }[] = [
-  { name: "grass_1", kind: "walkable" },
-  { name: "grass_2", kind: "walkable" },
-  { name: "flower_1", kind: "walkable" },
-  { name: "flower_2", kind: "walkable" },
-  { name: "tree_1", kind: "blocking" },
-  { name: "tree_2", kind: "blocking" },
-  { name: "rock_1", kind: "blocking" },
-  { name: "rock_2", kind: "blocking" },
-  { name: "bush_1", kind: "blocking" },
-];
+// Lấy động danh sách decorations từ folder (Vite import.meta.glob)
+const decoModules = import.meta.glob("/public/sprites/decorations/*.png", {
+  eager: true,
+  query: "?url",
+  import: "default",
+});
+
+// Extract tên file từ path và tạo danh sách
+const DECO_NAMES = Object.keys(decoModules)
+  .map((path) => {
+    const match = path.match(/\/([^/]+)\.png$/);
+    return match ? match[1] : null;
+  })
+  .filter((name): name is string => name !== null)
+  .sort();
+
+// Xác định DecoKind dựa vào prefix
+function getDecoKind(name: string): DecoKind {
+  // grass_, flower_ = walkable (đi qua được)
+  if (name.startsWith("grass_")) return "walkable";
+  if (name.startsWith("flower_")) return "walkable";
+  // tree_, rock_, bush_ = blocking (chặn di chuyển)
+  if (name.startsWith("tree_")) return "blocking";
+  if (name.startsWith("rock_")) return "blocking";
+  if (name.startsWith("bush_")) return "blocking";
+  // Mặc định: walkable
+  return "walkable";
+}
 
 // Phân loại tile theo prefix
 function getTileKind(name: string): TileKind {
@@ -71,11 +87,11 @@ export const TILE_DEFS: TileDef[] = TILE_NAMES.map((name, index) => ({
   kind: getTileKind(name),
 }));
 
-export const DECO_DEFS: DecoDef[] = DECO_ENTRIES.map((entry, index) => ({
+export const DECO_DEFS: DecoDef[] = DECO_NAMES.map((name, index) => ({
   id: index + 1,
-  name: entry.name,
-  image: `${DECO_BASE_PATH}/${entry.name}.png`,
-  kind: entry.kind,
+  name,
+  image: `${DECO_BASE_PATH}/${name}.png`,
+  kind: getDecoKind(name),
 }));
 
 const TILE_BY_ID = new Map(TILE_DEFS.map((def) => [def.id, def]));

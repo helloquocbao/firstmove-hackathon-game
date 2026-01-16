@@ -16,8 +16,13 @@ import { suiClient } from "../chain/suiClient";
 import {
   DEFAULT_GROUND_TILE_ID,
   TILE_DEFS,
+  DECO_DEFS,
+  NO_DECO_ID,
   getTileDef,
+  getDecoDef,
   normalizeTileId,
+  normalizeDecoId,
+  PaintLayer,
 } from "../game/tiles";
 import "./EditorGame.css";
 
@@ -28,7 +33,7 @@ import "./EditorGame.css";
  */
 
 const TILE_SIZE = 32;
-const CHUNK_SIZE = 8;
+const CHUNK_SIZE = 5;
 const DEFAULT_FLOOR = DEFAULT_GROUND_TILE_ID;
 const VOID_TILE_COLOR = "#0b0b0b";
 const USER_ID_KEY = "EDITOR_USER_ID";
@@ -44,8 +49,13 @@ export default function EditorGame() {
 
   const [userId] = useState(() => getOrCreateUserId());
   const [notice, setNotice] = useState<string>("");
+  const [paintLayer, setPaintLayer] = useState<PaintLayer>("base");
   const [selectedTile, setSelectedTile] = useState<number>(DEFAULT_FLOOR);
+  const [selectedDeco, setSelectedDeco] = useState<number>(NO_DECO_ID);
   const [grid, setGrid] = useState<number[][]>(() => createDefaultGrid());
+  const [decoGrid, setDecoGrid] = useState<number[][]>(() =>
+    createDefaultDecoGrid()
+  );
   const [chunkOwners, setChunkOwners] = useState<ChunkOwners>(() =>
     createOwnersForGrid(createDefaultGrid(), userId)
   );
@@ -69,6 +79,10 @@ export default function EditorGame() {
   const [hoveredChunkKey, setHoveredChunkKey] = useState("");
   const [hoveredChunkId, setHoveredChunkId] = useState("");
   const [isHoverIdLoading, setIsHoverIdLoading] = useState(false);
+
+  // World creation params
+  const [worldDifficulty, setWorldDifficulty] = useState<number>(1);
+  const [worldRequiredPower, setWorldRequiredPower] = useState<number>(0);
 
   const chunkIdCacheRef = useRef<Record<string, string>>({});
   const hoverRequestRef = useRef(0);
@@ -224,12 +238,23 @@ export default function EditorGame() {
     if (!activeChunkCoords || !canSaveActiveChunk) return;
     const gx = activeChunkCoords.cx * CHUNK_SIZE + localX;
     const gy = activeChunkCoords.cy * CHUNK_SIZE + localY;
-    setGrid((prev) => {
-      if (prev[gy]?.[gx] === selectedTile) return prev;
-      const copy = prev.map((row) => [...row]);
-      copy[gy][gx] = selectedTile;
-      return copy;
-    });
+
+    if (paintLayer === "base") {
+      setGrid((prev) => {
+        if (prev[gy]?.[gx] === selectedTile) return prev;
+        const copy = prev.map((row) => [...row]);
+        copy[gy][gx] = selectedTile;
+        return copy;
+      });
+    } else {
+      setDecoGrid((prev) => {
+        if (prev[gy]?.[gx] === selectedDeco) return prev;
+        const copy = prev.map((row) => [...row]);
+        if (!copy[gy]) copy[gy] = [];
+        copy[gy][gx] = selectedDeco;
+        return copy;
+      });
+    }
   }
 
   function handleGridPointerDown(event: React.PointerEvent<HTMLDivElement>) {
@@ -402,6 +427,9 @@ export default function EditorGame() {
       const newGrid = Array(height)
         .fill(0)
         .map(() => Array(width).fill(0));
+      const newDecoGrid = Array(height)
+        .fill(0)
+        .map(() => Array(width).fill(0));
       const newOwners: ChunkOwners = {};
 
       chunkEntries.forEach((entry, index) => {
@@ -412,12 +440,17 @@ export default function EditorGame() {
         const tiles = normalizeMoveVector(fields.tiles).map((tile) =>
           normalizeTileId(clampU8(parseU32Value(tile) ?? 0, 255))
         );
+        const decorations = normalizeMoveVector(fields.decorations ?? []).map(
+          (deco) => normalizeDecoId(clampU8(parseU32Value(deco) ?? 0, 255))
+        );
 
         for (let y = 0; y < CHUNK_SIZE; y++) {
           for (let x = 0; x < CHUNK_SIZE; x++) {
             const idx = y * CHUNK_SIZE + x;
             newGrid[entry.cy * CHUNK_SIZE + y][entry.cx * CHUNK_SIZE + x] =
               tiles[idx] ?? 0;
+            newDecoGrid[entry.cy * CHUNK_SIZE + y][entry.cx * CHUNK_SIZE + x] =
+              decorations[idx] ?? 0;
           }
         }
 
@@ -428,6 +461,7 @@ export default function EditorGame() {
       });
 
       setGrid(newGrid);
+      setDecoGrid(newDecoGrid);
       setChunkOwners(newOwners);
       setLoadedChunks(chunkEntries.length);
       setNotice(`Loaded ${chunkEntries.length} chunks from chain.`);
@@ -582,7 +616,12 @@ export default function EditorGame() {
       (tx) => {
         tx.moveCall({
           target: `${PACKAGE_ID}::world::create_world`,
-          arguments: [tx.object(WORLD_REGISTRY_ID), tx.object(ADMIN_CAP_ID)],
+          arguments: [
+            tx.object(WORLD_REGISTRY_ID),
+            tx.object(ADMIN_CAP_ID),
+            tx.pure.u8(worldDifficulty),
+            tx.pure.u64(worldRequiredPower),
+          ],
         });
       },
       () => loadWorldId()
@@ -605,6 +644,7 @@ export default function EditorGame() {
     const cx = parseCoord(cxRaw ?? "0");
     const cy = parseCoord(cyRaw ?? "0");
     const tiles = buildChunkTiles(grid, cx, cy);
+    const decorations = buildChunkDecorations(decoGrid, cx, cy);
     const imageUrl = claimImageUrl.trim();
 
     await runTx(
@@ -617,6 +657,7 @@ export default function EditorGame() {
             tx.object(RANDOM_OBJECT_ID),
             tx.pure.string(imageUrl),
             tx.pure.vector("u8", tiles),
+            tx.pure.vector("u8", decorations),
           ],
         });
       },
@@ -643,12 +684,17 @@ export default function EditorGame() {
     if (!resolved) return;
 
     const tiles = buildChunkTiles(grid, cx, cy);
+    const decorations = buildChunkDecorations(decoGrid, cx, cy);
     await runTx(
       "Save chunk",
       (tx) => {
         tx.moveCall({
-          target: `${PACKAGE_ID}::world::set_tiles`,
-          arguments: [tx.object(resolved), tx.pure.vector("u8", tiles)],
+          target: `${PACKAGE_ID}::world::set_tiles_and_decorations`,
+          arguments: [
+            tx.object(resolved),
+            tx.pure.vector("u8", tiles),
+            tx.pure.vector("u8", decorations),
+          ],
         });
       },
       () => {
@@ -717,20 +763,67 @@ export default function EditorGame() {
             </div>
 
             <div className="panel">
-              <div className="panel__title">Tiles</div>
-              <div className="editor-tiles">
-                {TILE_DEFS.map((tile) => (
-                  <TileButton
-                    key={tile.id}
-                    label={tile.name.replace("tile_", "")}
-                    image={tile.image}
-                    kind={tile.kind}
-                    active={selectedTile === tile.id}
-                    onClick={() => setSelectedTile(tile.id)}
-                  />
-                ))}
+              <div className="panel__title">Paint Layer</div>
+              <div className="editor-layer-toggle">
+                <button
+                  className={`btn ${
+                    paintLayer === "base" ? "btn--primary" : "btn--outline"
+                  }`}
+                  onClick={() => setPaintLayer("base")}
+                >
+                  Base
+                </button>
+                <button
+                  className={`btn ${
+                    paintLayer === "decor" ? "btn--primary" : "btn--outline"
+                  }`}
+                  onClick={() => setPaintLayer("decor")}
+                >
+                  Decor
+                </button>
               </div>
             </div>
+
+            {paintLayer === "base" ? (
+              <div className="panel">
+                <div className="panel__title">Base Tiles</div>
+                <div className="editor-tiles">
+                  {TILE_DEFS.map((tile) => (
+                    <TileButton
+                      key={tile.id}
+                      label={tile.name.replace("tile_", "")}
+                      image={tile.image}
+                      kind={tile.kind}
+                      active={selectedTile === tile.id}
+                      onClick={() => setSelectedTile(tile.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="panel">
+                <div className="panel__title">Decorations</div>
+                <div className="editor-tiles">
+                  <DecoButton
+                    label="None"
+                    image=""
+                    kind="none"
+                    active={selectedDeco === NO_DECO_ID}
+                    onClick={() => setSelectedDeco(NO_DECO_ID)}
+                  />
+                  {DECO_DEFS.map((deco) => (
+                    <DecoButton
+                      key={deco.id}
+                      label={deco.name}
+                      image={deco.image}
+                      kind={deco.kind}
+                      active={selectedDeco === deco.id}
+                      onClick={() => setSelectedDeco(deco.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="panel">
               <div className="panel__title">Game</div>
@@ -779,6 +872,7 @@ export default function EditorGame() {
                         Boolean(activeChunkKey) &&
                         chunkKey !== activeChunkKey;
                       const isHovered = isOwned && chunkKey === hoveredChunkKey;
+                      const decoId = decoGrid[y]?.[x] ?? 0;
 
                       return (
                         <button
@@ -796,7 +890,7 @@ export default function EditorGame() {
                           }
                           title={`Owner: ${owner ?? "none"}`}
                           style={{
-                            ...getTileStyle(cell),
+                            ...getTileStyle(cell, decoId),
                             cursor: "pointer",
                           }}
                         />
@@ -891,6 +985,32 @@ export default function EditorGame() {
               <p className="panel__desc">
                 Create the shared world object using the admin cap.
               </p>
+              <div className="panel__field">
+                <label>Difficulty (1-9)</label>
+                <select
+                  className="input"
+                  value={worldDifficulty}
+                  onChange={(e) => setWorldDifficulty(Number(e.target.value))}
+                >
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="panel__field">
+                <label>Required Power</label>
+                <input
+                  className="input"
+                  type="number"
+                  min="0"
+                  value={worldRequiredPower}
+                  onChange={(e) =>
+                    setWorldRequiredPower(Number(e.target.value))
+                  }
+                />
+              </div>
               <button
                 className="btn btn--primary"
                 onClick={createWorldOnChain}
@@ -1003,6 +1123,7 @@ export default function EditorGame() {
                         const gx = activeChunkCoords.cx * CHUNK_SIZE + x;
                         const gy = activeChunkCoords.cy * CHUNK_SIZE + y;
                         const cell = grid[gy]?.[gx] ?? 0;
+                        const decoId = decoGrid[gy]?.[gx] ?? 0;
 
                         return (
                           <button
@@ -1010,7 +1131,7 @@ export default function EditorGame() {
                             className="editor-tile editor-tile--chunk"
                             onClick={() => paintModalTile(x, y)}
                             style={{
-                              ...getTileStyle(cell),
+                              ...getTileStyle(cell, decoId),
                               cursor: "pointer",
                             }}
                           />
@@ -1021,19 +1142,69 @@ export default function EditorGame() {
                 </div>
 
                 <div className="editor-modal__tiles">
-                  <div className="panel__title">Tiles</div>
-                  <div className="editor-tiles">
-                    {TILE_DEFS.map((tile) => (
-                      <TileButton
-                        key={tile.id}
-                        label={tile.name.replace("tile_", "")}
-                        image={tile.image}
-                        kind={tile.kind}
-                        active={selectedTile === tile.id}
-                        onClick={() => setSelectedTile(tile.id)}
-                      />
-                    ))}
+                  <div className="panel__title">Paint Layer</div>
+                  <div
+                    className="editor-layer-toggle"
+                    style={{ marginBottom: "12px" }}
+                  >
+                    <button
+                      className={`btn ${
+                        paintLayer === "base" ? "btn--primary" : "btn--outline"
+                      }`}
+                      onClick={() => setPaintLayer("base")}
+                    >
+                      Base
+                    </button>
+                    <button
+                      className={`btn ${
+                        paintLayer === "decor" ? "btn--primary" : "btn--outline"
+                      }`}
+                      onClick={() => setPaintLayer("decor")}
+                    >
+                      Decor
+                    </button>
                   </div>
+
+                  {paintLayer === "base" ? (
+                    <>
+                      <div className="panel__title">Base Tiles</div>
+                      <div className="editor-tiles">
+                        {TILE_DEFS.map((tile) => (
+                          <TileButton
+                            key={tile.id}
+                            label={tile.name.replace("tile_", "")}
+                            image={tile.image}
+                            kind={tile.kind}
+                            active={selectedTile === tile.id}
+                            onClick={() => setSelectedTile(tile.id)}
+                          />
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="panel__title">Decorations</div>
+                      <div className="editor-tiles">
+                        <DecoButton
+                          label="None"
+                          image=""
+                          kind="none"
+                          active={selectedDeco === NO_DECO_ID}
+                          onClick={() => setSelectedDeco(NO_DECO_ID)}
+                        />
+                        {DECO_DEFS.map((deco) => (
+                          <DecoButton
+                            key={deco.id}
+                            label={deco.name}
+                            image={deco.image}
+                            kind={deco.kind}
+                            active={selectedDeco === deco.id}
+                            onClick={() => setSelectedDeco(deco.id)}
+                          />
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -1103,13 +1274,33 @@ function createDefaultGrid() {
     .map(() => Array(CHUNK_SIZE).fill(DEFAULT_FLOOR));
 }
 
-function getTileStyle(tileId: number) {
-  const def = getTileDef(tileId);
-  if (!def) {
+function createDefaultDecoGrid() {
+  return Array(CHUNK_SIZE)
+    .fill(0)
+    .map(() => Array(CHUNK_SIZE).fill(0));
+}
+
+function getTileStyle(tileId: number, decoId: number = 0) {
+  const tileDef = getTileDef(tileId);
+  const decoDef = decoId > 0 ? getDecoDef(decoId) : null;
+
+  if (!tileDef) {
     return { background: VOID_TILE_COLOR };
   }
+
+  // Nếu có decoration, stack 2 layers
+  if (decoDef) {
+    return {
+      backgroundImage: `url(${decoDef.image}), url(${tileDef.image})`,
+      backgroundSize: "contain, cover",
+      backgroundPosition: "center, center",
+      backgroundRepeat: "no-repeat, no-repeat",
+      backgroundColor: VOID_TILE_COLOR,
+    };
+  }
+
   return {
-    backgroundImage: `url(${def.image})`,
+    backgroundImage: `url(${tileDef.image})`,
     backgroundColor: VOID_TILE_COLOR,
   };
 }
@@ -1127,6 +1318,21 @@ function buildChunkTiles(grid: number[][], cx: number, cy: number) {
   }
 
   return tiles;
+}
+
+function buildChunkDecorations(decoGrid: number[][], cx: number, cy: number) {
+  const decorations: number[] = [];
+  const startX = cx * CHUNK_SIZE;
+  const startY = cy * CHUNK_SIZE;
+
+  for (let y = 0; y < CHUNK_SIZE; y++) {
+    for (let x = 0; x < CHUNK_SIZE; x++) {
+      const value = decoGrid[startY + y]?.[startX + x];
+      decorations.push(typeof value === "number" ? value : 0);
+    }
+  }
+
+  return decorations;
 }
 
 function parseCoord(value: string) {
@@ -1290,7 +1496,7 @@ function TileButton({
 }: {
   label: string;
   image: string;
-  kind: "ground" | "abyssWall";
+  kind: "ground" | "barrier" | "abyss";
   active: boolean;
   onClick: () => void;
 }) {
@@ -1298,12 +1504,43 @@ function TileButton({
     <button
       onClick={onClick}
       className={`tile-button ${active ? "tile-button--active" : ""} ${
-        kind === "abyssWall" ? "tile-button--abyss" : ""
-      }`}
+        kind === "abyss" ? "tile-button--abyss" : ""
+      } ${kind === "barrier" ? "tile-button--barrier" : ""}`}
       style={{ backgroundImage: `url(${image})` }}
-      title={`${label} (${kind === "abyssWall" ? "abyss wall" : "ground"})`}
+      title={`${label} (${kind})`}
     >
       {label}
+    </button>
+  );
+}
+
+/* ================= DECO BUTTON ================= */
+
+function DecoButton({
+  label,
+  image,
+  kind,
+  active,
+  onClick,
+}: {
+  label: string;
+  image: string;
+  kind: "none" | "walkable" | "blocking";
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`tile-button ${active ? "tile-button--active" : ""} ${
+        kind === "blocking" ? "tile-button--blocking" : ""
+      } ${kind === "none" ? "tile-button--none" : ""}`}
+      style={
+        image ? { backgroundImage: `url(${image})` } : { background: "#333" }
+      }
+      title={`${label} (${kind})`}
+    >
+      {kind === "none" ? "✕" : label}
     </button>
   );
 }

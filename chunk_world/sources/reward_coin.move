@@ -86,7 +86,7 @@ module chunk_world::reward_coin {
         mint_internal(treasury_cap, amount, ctx)
     }
 
-     entry fun mint_to_sender(
+     entry fun mint_token(
         treasury_cap: &mut coin::TreasuryCap<REWARD_COIN>,
         amount: u64,
         ctx: &mut TxContext

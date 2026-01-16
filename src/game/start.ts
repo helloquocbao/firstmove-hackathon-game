@@ -23,6 +23,7 @@ type GameMapData = {
 export function startGame(mapData?: GameMapData) {
   if (started) {
     if (mapData) {
+      console.log("Restarting game with new map data", mapData);
       go("game", { mapData });
     }
     return;

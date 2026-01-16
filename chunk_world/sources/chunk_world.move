@@ -17,8 +17,8 @@ module chunk_world::world {
 
     /* ================= CONFIG ================= */
 
-    const CHUNK_SIZE: u64 = 8;
-    const TILES_LEN: u64 = 64; // 8*8
+    const CHUNK_SIZE: u64 = 5;
+    const TILES_LEN: u64 = 25; // 5*5
     const MAX_URL_BYTES: u64 = 2048;
 
     const U32_MAX: u32 = 4294967295;
@@ -40,6 +40,10 @@ module chunk_world::world {
     const E_INVALID_REWARD_RANGE: u64 = 9;
     const E_PLAY_NOT_FOUND: u64 = 10;
     const E_INVALID_SEAL: u64 = 11;
+    const E_INVALID_DIFFICULTY: u64 = 12;
+    const E_CHARACTER_ALREADY_EXISTS: u64 = 13;
+    const E_INSUFFICIENT_POWER: u64 = 15;
+    const E_INVALID_NAME: u64 = 16;
 
     /* ================= ADMIN / REGISTRY ================= */
 
@@ -78,6 +82,8 @@ module chunk_world::world {
         chunk_count: u64,
         next_play_id: u64,
         admin: address,
+        difficulty: u8,        // 1-9
+        required_power: u64,   // sức mạnh yêu cầu để tham gia
         chunks: vector<ChunkKey>,
     }
 
@@ -90,7 +96,24 @@ module chunk_world::world {
         cx: u32,
         cy: u32,
         image_url: String,
-        tiles: vector<u8>, // length=64, idx = y*8 + x
+        tiles: vector<u8>,       // base layer: length=25, idx = y*5 + x
+        decorations: vector<u8>, // decor layer: length=25, 0 = none
+    }
+
+    /* ================= CHARACTER NFT (SOULBOUND) ================= */
+
+    /// Key cho dynamic field: owner_address -> character_id
+    public struct CharacterKey has copy, drop, store {
+        owner: address,
+    }
+
+    /// Mỗi ví chỉ có 1 NFT nhân vật (soulbound - không giao dịch được)
+    public struct CharacterNFT has key {
+        id: UID,
+        owner: address,
+        name: String,
+        power: u64,      // sức mạnh tích lũy
+        potential: u64,  // tiềm năng tích lũy
     }
 
     /* ================= EVENTS ================= */
@@ -137,7 +160,21 @@ module chunk_world::world {
         world_id: ID,
         play_id: u64,
         reward: u64,
+        power_gained: u64,
+        potential_gained: u64,
         recipient: address,
+    }
+
+    public struct CharacterCreatedEvent has copy, drop {
+        character_id: ID,
+        owner: address,
+        name: String,
+    }
+
+    public struct CharacterUpdatedEvent has copy, drop {
+        character_id: ID,
+        power: u64,
+        potential: u64,
     }
 
     /* ================= DISPLAY INIT (làm đẹp NFT) ================= */
@@ -201,12 +238,17 @@ module chunk_world::world {
     /* ================= ADMIN: CREATE WORLD ================= */
 
     /// Admin tạo world (shared). Chỉ tạo 1 lần.
+    /// difficulty: 1-9 (1 = easy, 9 = hardest)
+    /// required_power: sức mạnh yêu cầu để tham gia world này
      entry fun create_world(
         registry: &mut WorldRegistry,
         _cap: &AdminCap,
+        difficulty: u8,
+        required_power: u64,
         ctx: &mut TxContext
     ) {
         assert!(!option::is_some(&registry.world_id), E_WORLD_ALREADY_CREATED);
+        assert!(difficulty >= 1 && difficulty <= 9, E_INVALID_DIFFICULTY);
 
         let admin = tx_context::sender(ctx);
         let world = WorldMap {
@@ -214,6 +256,8 @@ module chunk_world::world {
             chunk_count: 0,
             next_play_id: 0,
             admin,
+            difficulty,
+            required_power,
             chunks: vector[],
         };
 
@@ -223,6 +267,39 @@ module chunk_world::world {
         transfer::share_object(world);
 
         event::emit(WorldCreatedEvent { world_id, admin });
+    }
+
+    /* ================= USER: CREATE CHARACTER ================= */
+
+    /// Mỗi ví chỉ tạo được 1 character (soulbound NFT)
+     entry fun create_character(
+        registry: &WorldRegistry,
+        name: String,
+        ctx: &mut TxContext
+    ) {
+        let sender = tx_context::sender(ctx);
+        
+        // Kiểm tra tên hợp lệ (1-32 bytes)
+        let name_len = string::length(&name);
+        assert!(name_len >= 1 && name_len <= 32, E_INVALID_NAME);
+        
+        // Kiểm tra chưa có character (dùng dynamic field trên registry)
+        assert!(!df::exists_(&registry.id, CharacterKey { owner: sender }), E_CHARACTER_ALREADY_EXISTS);
+
+        let character = CharacterNFT {
+            id: object::new(ctx),
+            owner: sender,
+            name,
+            power: 0,
+            potential: 0,
+        };
+
+        let character_id = object::uid_to_inner(&character.id);
+
+        event::emit(CharacterCreatedEvent { character_id, owner: sender, name: character.name });
+
+        // Transfer cho owner (soulbound vì không có store ability)
+        transfer::transfer(character, sender);
     }
 
     /* ================= USER: CLAIM / MINT CHUNK NFT ================= */
@@ -236,11 +313,14 @@ module chunk_world::world {
         randomness: &random::Random,
         image_url: String,
         tiles: vector<u8>,
+        decorations: vector<u8>,
         ctx: &mut TxContext
     ) {
         assert!(string::length(&image_url) <= MAX_URL_BYTES, E_URL_TOO_LONG);
         assert!(vector::length(&tiles) == TILES_LEN, E_INVALID_TILES_LEN);
+        assert!(vector::length(&decorations) == TILES_LEN, E_INVALID_TILES_LEN);
         assert_tiles_valid(&tiles);
+        assert_decorations_valid(&decorations);
 
         let (cx, cy) = if (world.chunk_count == 0) {
             (0, 0)
@@ -269,6 +349,7 @@ module chunk_world::world {
             cy,
             image_url,
             tiles,
+            decorations,
         };
 
         let chunk_id = object::uid_to_inner(&chunk.id);
@@ -286,15 +367,20 @@ module chunk_world::world {
     /* ================= GAME: PLAY / REWARD ================= */
 
     /// seal = hash::sha3_256(key_bytes) (compute off-chain)
+    /// Yêu cầu character có đủ power để tham gia world
      entry fun play(
         world: &mut WorldMap,
         vault: &mut RewardVault,
+        character: &CharacterNFT,
         mut fee_coin: Coin<reward_coin::REWARD_COIN>,
         seal: vector<u8>,
         ctx: &mut TxContext
     ) {
         assert!(vector::length(&seal) > 0, E_INVALID_SEAL);
         assert!(MAX_REWARD >= MIN_REWARD && MIN_REWARD > 0, E_INVALID_REWARD_RANGE);
+        
+        // Kiểm tra character có đủ power để chơi world này
+        assert!(character.power >= world.required_power, E_INSUFFICIENT_POWER);
 
         let fee_value = coin::value(&fee_coin);
         assert!(fee_value >= PLAY_FEE, E_INVALID_FEE);
@@ -322,9 +408,11 @@ module chunk_world::world {
         event::emit(PlayCreatedEvent { world_id, play_id, min_reward: MIN_REWARD, max_reward: MAX_REWARD, creator: sender });
     }
 
+    /// Claim reward và cộng power/potential vào character
      entry fun claim_reward(
         world: &mut WorldMap,
         vault: &mut RewardVault,
+        character: &mut CharacterNFT,
         randomness: &random::Random,
         play_id: u64,
         key: vector<u8>,
@@ -348,14 +436,35 @@ module chunk_world::world {
         let recipient = tx_context::sender(ctx);
         transfer::public_transfer(coin, recipient);
 
+        // Cộng power và potential vào character dựa trên difficulty
+        let difficulty = world.difficulty as u64;
+        let power_gained = reward * difficulty;           // reward * độ khó
+        let potential_gained = difficulty;                // +1 potential mỗi độ khó
+        
+        character.power = character.power + power_gained;
+        character.potential = character.potential + potential_gained;
+
         let world_id = object::uid_to_inner(&world.id);
-        event::emit(RewardClaimedEvent { world_id, play_id, reward, recipient });
+        event::emit(RewardClaimedEvent { 
+            world_id, 
+            play_id, 
+            reward, 
+            power_gained,
+            potential_gained,
+            recipient 
+        });
+
+        event::emit(CharacterUpdatedEvent {
+            character_id: object::uid_to_inner(&character.id),
+            power: character.power,
+            potential: character.potential,
+        });
     }
 
     /* ================= OWNER: EDIT CHUNK ================= */
 
      entry fun set_tile(chunk: &mut ChunkNFT, x: u8, y: u8, tile: u8) {
-        assert!(x < 8u8 && y < 8u8, E_OUT_OF_BOUNDS);
+        assert!(x < 5u8 && y < 5u8, E_OUT_OF_BOUNDS);
         assert!(is_valid_tile(tile), E_INVALID_TILE_CODE);
 
         let idx = (y as u64) * CHUNK_SIZE + (x as u64);
@@ -367,11 +476,28 @@ module chunk_world::world {
         });
     }
 
-    /// Batch save 64 tiles (khuyên dùng để giảm tx)
+    /// Batch save 25 tiles (khuyên dùng để giảm tx)
      entry fun set_tiles(chunk: &mut ChunkNFT, tiles: vector<u8>) {
         assert!(vector::length(&tiles) == TILES_LEN, E_INVALID_TILES_LEN);
         assert_tiles_valid(&tiles);
         chunk.tiles = tiles;
+    }
+
+    /// Batch save 25 decorations
+     entry fun set_decorations(chunk: &mut ChunkNFT, decorations: vector<u8>) {
+        assert!(vector::length(&decorations) == TILES_LEN, E_INVALID_TILES_LEN);
+        assert_decorations_valid(&decorations);
+        chunk.decorations = decorations;
+    }
+
+    /// Batch save both tiles and decorations
+     entry fun set_tiles_and_decorations(chunk: &mut ChunkNFT, tiles: vector<u8>, decorations: vector<u8>) {
+        assert!(vector::length(&tiles) == TILES_LEN, E_INVALID_TILES_LEN);
+        assert!(vector::length(&decorations) == TILES_LEN, E_INVALID_TILES_LEN);
+        assert_tiles_valid(&tiles);
+        assert_decorations_valid(&decorations);
+        chunk.tiles = tiles;
+        chunk.decorations = decorations;
     }
 
      entry fun set_image_url(chunk: &mut ChunkNFT, new_url: String) {
@@ -470,10 +596,14 @@ module chunk_world::world {
         ok
     }
 
-    /// Allowed codes: 0,1,2,4,5,6,7,8
+    /// Allowed codes: 0-30
     fun is_valid_tile(t: u8): bool {
-        (t == 0) || (t == 1) || (t == 2) || (t == 4) ||
-        (t == 5) || (t == 6) || (t == 7) || (t == 8)
+        t <= 30
+    }
+
+    /// Allowed decoration codes: 0-40 (0 = no decoration)
+    fun is_valid_decoration(d: u8): bool {
+        d <= 40
     }
 
     fun assert_tiles_valid(tiles: &vector<u8>) {
@@ -482,6 +612,16 @@ module chunk_world::world {
         while (i < n) {
             let t = *vector::borrow(tiles, i);
             assert!(is_valid_tile(t), E_INVALID_TILE_CODE);
+            i = i + 1;
+        }
+    }
+
+    fun assert_decorations_valid(decorations: &vector<u8>) {
+        let mut i = 0;
+        let n = vector::length(decorations);
+        while (i < n) {
+            let d = *vector::borrow(decorations, i);
+            assert!(is_valid_decoration(d), E_INVALID_TILE_CODE);
             i = i + 1;
         }
     }

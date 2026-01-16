@@ -11,6 +11,8 @@ import {
   PACKAGE_ID,
   SUI_RPC_URL,
   WORLD_REGISTRY_ID,
+  REWARD_VAULT_ID,
+  REWARD_COIN_TYPE,
 } from "../chain/config";
 import { suiClient } from "../chain/suiClient";
 import {
@@ -83,6 +85,18 @@ export default function EditorGame() {
   // World creation params
   const [worldDifficulty, setWorldDifficulty] = useState<number>(1);
   const [worldRequiredPower, setWorldRequiredPower] = useState<number>(0);
+
+  // Character params
+  const [characterName, setCharacterName] = useState<string>("");
+  const [characterId, setCharacterId] = useState<string>("");
+  const [characterPower, setCharacterPower] = useState<number>(0);
+  const [characterPotential, setCharacterPotential] = useState<number>(0);
+
+  // Play params
+  const [playId, setPlayId] = useState<string>("");
+  const [playSeal, setPlaySeal] = useState<string>("");
+  const [playKey, setPlayKey] = useState<string>("");
+  const [rewardCoinId, setRewardCoinId] = useState<string>("");
 
   const chunkIdCacheRef = useRef<Record<string, string>>({});
   const hoverRequestRef = useRef(0);
@@ -170,6 +184,7 @@ export default function EditorGame() {
     : undefined;
   const canSaveActiveChunk =
     Boolean(activeChunkKey) && isOwnerMatch(activeChunkOwner);
+
   const activeChunkCoords = useMemo(() => {
     if (!activeChunkKey) return null;
     const [cxRaw, cyRaw] = activeChunkKey.split(",");
@@ -540,6 +555,8 @@ export default function EditorGame() {
       return "";
     }
 
+    console.log("fetchChunkObjectId:", { cx, cy, worldIdValue, PACKAGE_ID });
+
     try {
       const result = await suiClient.getDynamicFieldObject({
         parentId: worldIdValue,
@@ -549,13 +566,17 @@ export default function EditorGame() {
         },
       });
 
+      console.log("getDynamicFieldObject result:", result);
+
       const content = result.data?.content;
       if (!content || content.dataType !== "moveObject") {
-        if (!silent) setTxError("Chunk not found.");
+        if (!silent)
+          setTxError("Chunk not found on-chain. Did you claim it first?");
         return "";
       }
 
       const fields = content.fields as Record<string, unknown>;
+      console.log("Chunk fields:", fields);
       const resolved = extractObjectId(fields.value);
       if (!resolved) {
         if (!silent) setTxError("Could not parse chunk id.");
@@ -672,8 +693,20 @@ export default function EditorGame() {
     }
 
     const owner = chunkOwners[activeChunkKey];
+    console.log("Save chunk debug:", {
+      activeChunkKey,
+      owner,
+      walletAddress,
+      userId,
+      isOwnerMatch: isOwnerMatch(owner),
+    });
+
     if (!isOwnerMatch(owner)) {
-      setNotice(owner ? `Chunk owned by ${owner}.` : "Chunk has no owner.");
+      setNotice(
+        owner
+          ? `Chunk owned by ${owner}. Your wallet: ${walletAddress}`
+          : "Chunk has no owner on-chain."
+      );
       return;
     }
 
@@ -681,7 +714,13 @@ export default function EditorGame() {
     const cx = parseCoord(cxRaw ?? "0");
     const cy = parseCoord(cyRaw ?? "0");
     const resolved = await fetchChunkObjectId(cx, cy);
-    if (!resolved) return;
+
+    if (!resolved) {
+      setNotice(
+        "Chunk not found on-chain. Please claim it first using 'Claim chunk' button."
+      );
+      return;
+    }
 
     const tiles = buildChunkTiles(grid, cx, cy);
     const decorations = buildChunkDecorations(decoGrid, cx, cy);
@@ -702,6 +741,187 @@ export default function EditorGame() {
       }
     );
   }
+
+  /* ================= CHARACTER / PLAY / REWARD ================= */
+
+  async function loadCharacter() {
+    if (!account?.address) return;
+    try {
+      const characterType = `${PACKAGE_ID}::world::CharacterNFT`;
+      const result = await suiClient.getOwnedObjects({
+        owner: account.address,
+        filter: { StructType: characterType },
+        options: { showContent: true },
+      });
+
+      if (result.data.length > 0) {
+        const obj = result.data[0];
+        const content = obj.data?.content;
+        if (content && content.dataType === "moveObject") {
+          const fields = normalizeMoveFields(content.fields);
+          setCharacterId(obj.data?.objectId ?? "");
+          setCharacterPower(parseU32Value(fields.power) ?? 0);
+          setCharacterPotential(parseU32Value(fields.potential) ?? 0);
+          setCharacterName(String(fields.name ?? ""));
+        }
+      }
+    } catch (error) {
+      console.error("Failed to load character:", error);
+    }
+  }
+
+  async function createCharacterOnChain() {
+    if (!WORLD_REGISTRY_ID) {
+      setTxError("Missing world registry id.");
+      return;
+    }
+    if (!characterName.trim()) {
+      setTxError("Character name is required (1-32 chars).");
+      return;
+    }
+
+    await runTx(
+      "Create character",
+      (tx) => {
+        tx.moveCall({
+          target: `${PACKAGE_ID}::world::create_character`,
+          arguments: [
+            tx.object(WORLD_REGISTRY_ID),
+            tx.pure.string(characterName.trim()),
+          ],
+        });
+      },
+      () => {
+        setNotice("Character created!");
+        void loadCharacter();
+      }
+    );
+  }
+
+  async function loadRewardCoins() {
+    if (!account?.address || !REWARD_COIN_TYPE) return;
+    try {
+      const coins = await suiClient.getCoins({
+        owner: account.address,
+        coinType: REWARD_COIN_TYPE,
+      });
+      if (coins.data.length > 0) {
+        setRewardCoinId(coins.data[0].coinObjectId);
+      }
+    } catch (error) {
+      console.error("Failed to load reward coins:", error);
+    }
+  }
+
+  async function playOnChain() {
+    if (!worldIdValue) {
+      setTxError("World id missing.");
+      return;
+    }
+    if (!REWARD_VAULT_ID) {
+      setTxError("Missing reward vault id.");
+      return;
+    }
+    if (!characterId) {
+      setTxError("Character not found. Create one first.");
+      return;
+    }
+    if (!rewardCoinId) {
+      setTxError("No reward coins found. Get some first.");
+      return;
+    }
+
+    // Generate random key and seal
+    const keyBytes = new Uint8Array(32);
+    crypto.getRandomValues(keyBytes);
+    const keyHex = Array.from(keyBytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+
+    // Compute SHA3-256 seal (we'll use the browser's SubtleCrypto)
+    const sealBytes = await crypto.subtle.digest("SHA-256", keyBytes);
+    const sealArray = Array.from(new Uint8Array(sealBytes));
+
+    setPlayKey(keyHex);
+
+    await runTx(
+      "Play",
+      (tx) => {
+        tx.moveCall({
+          target: `${PACKAGE_ID}::world::play`,
+          arguments: [
+            tx.object(worldIdValue),
+            tx.object(REWARD_VAULT_ID),
+            tx.object(characterId),
+            tx.object(rewardCoinId),
+            tx.pure.vector("u8", sealArray),
+          ],
+        });
+      },
+      async () => {
+        setNotice("Play started! Save your key to claim reward later.");
+        // Lấy play_id từ event hoặc state (simplified - user phải nhập manual)
+      }
+    );
+  }
+
+  async function claimRewardOnChain() {
+    if (!worldIdValue) {
+      setTxError("World id missing.");
+      return;
+    }
+    if (!REWARD_VAULT_ID) {
+      setTxError("Missing reward vault id.");
+      return;
+    }
+    if (!characterId) {
+      setTxError("Character not found.");
+      return;
+    }
+    if (!playId) {
+      setTxError("Play ID missing.");
+      return;
+    }
+    if (!playKey) {
+      setTxError("Play key missing.");
+      return;
+    }
+
+    // Convert hex key back to bytes
+    const keyBytes =
+      playKey.match(/.{1,2}/g)?.map((byte) => parseInt(byte, 16)) ?? [];
+
+    await runTx(
+      "Claim reward",
+      (tx) => {
+        tx.moveCall({
+          target: `${PACKAGE_ID}::world::claim_reward`,
+          arguments: [
+            tx.object(worldIdValue),
+            tx.object(REWARD_VAULT_ID),
+            tx.object(characterId),
+            tx.object(RANDOM_OBJECT_ID),
+            tx.pure.u64(parseInt(playId)),
+            tx.pure.vector("u8", keyBytes),
+          ],
+        });
+      },
+      () => {
+        setNotice("Reward claimed! Power and potential increased.");
+        void loadCharacter();
+        setPlayId("");
+        setPlayKey("");
+      }
+    );
+  }
+
+  // Load character and coins when account changes
+  useEffect(() => {
+    if (account?.address) {
+      void loadCharacter();
+      void loadRewardCoins();
+    }
+  }, [account?.address]);
 
   /* ================= UI ================= */
 
@@ -1068,6 +1288,122 @@ export default function EditorGame() {
                 </div>
               </div>
               {txError && <div className="panel__error">{txError}</div>}
+            </div>
+
+            <div className="panel">
+              <div className="panel__title">Character</div>
+              <p className="panel__desc">
+                Create your soulbound character to play and earn rewards.
+              </p>
+              {characterId ? (
+                <div className="panel__rows">
+                  <div>
+                    <span>Name</span>
+                    <span>{characterName}</span>
+                  </div>
+                  <div>
+                    <span>Power</span>
+                    <span>{characterPower}</span>
+                  </div>
+                  <div>
+                    <span>Potential</span>
+                    <span>{characterPotential}</span>
+                  </div>
+                  <div>
+                    <span>ID</span>
+                    <span className="panel__value--wrap">
+                      {shortAddress(characterId)}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="panel__field">
+                    <label>Character Name (1-32 chars)</label>
+                    <input
+                      className="input"
+                      type="text"
+                      maxLength={32}
+                      value={characterName}
+                      onChange={(e) => setCharacterName(e.target.value)}
+                      placeholder="Enter name..."
+                    />
+                  </div>
+                  <button
+                    className="btn btn--primary"
+                    onClick={createCharacterOnChain}
+                    disabled={isBusy || !isConnected || !characterName.trim()}
+                  >
+                    {busyAction === "Create character"
+                      ? "Creating..."
+                      : "Create Character"}
+                  </button>
+                </>
+              )}
+            </div>
+
+            <div className="panel">
+              <div className="panel__title">Game Play</div>
+              <p className="panel__desc">
+                Pay 5 REWARD coins to play. Claim reward after completing.
+              </p>
+              <div className="panel__rows">
+                <div>
+                  <span>Reward Coin</span>
+                  <span>
+                    {rewardCoinId ? shortAddress(rewardCoinId) : "none"}
+                  </span>
+                </div>
+              </div>
+              <div className="panel__field">
+                <label>Play ID (for claiming)</label>
+                <input
+                  className="input"
+                  type="text"
+                  value={playId}
+                  onChange={(e) => setPlayId(e.target.value)}
+                  placeholder="Enter play ID..."
+                />
+              </div>
+              <div className="panel__field">
+                <label>Play Key (hex)</label>
+                <input
+                  className="input"
+                  type="text"
+                  value={playKey}
+                  onChange={(e) => setPlayKey(e.target.value)}
+                  placeholder="Key for claiming..."
+                />
+              </div>
+              <div
+                className="panel__actions"
+                style={{ gap: "8px", display: "flex" }}
+              >
+                <button
+                  className="btn btn--primary"
+                  onClick={playOnChain}
+                  disabled={
+                    isBusy || !isConnected || !characterId || !rewardCoinId
+                  }
+                >
+                  {busyAction === "Play" ? "Playing..." : "Play (5 coins)"}
+                </button>
+                <button
+                  className="btn btn--dark"
+                  onClick={claimRewardOnChain}
+                  disabled={
+                    isBusy ||
+                    !isConnected ||
+                    !characterId ||
+                    !playId ||
+                    !playKey
+                  }
+                >
+                  {busyAction === "Claim reward"
+                    ? "Claiming..."
+                    : "Claim Reward"}
+                </button>
+              </div>
             </div>
           </aside>
         </div>

@@ -21,7 +21,7 @@ import { isWalkableTile, normalizeTileId } from "../game/tiles";
 import "./GamePage.css";
 
 const TILE_SIZE = 32;
-const CHUNK_SIZE = 8;
+const CHUNK_SIZE = 5;
 const PLAY_FEE = 5n;
 const PLAY_STATE_KEY = "PLAY_STATE";
 const PLAY_TARGET_KEY = "PLAY_TARGET";

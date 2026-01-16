@@ -10,7 +10,7 @@ import {
 
 let started = false;
 const TILE = 32;
-const CHUNK_SIZE = 16;
+const CHUNK_SIZE = 5;
 const PLAY_STATE_KEY = "PLAY_STATE";
 const PLAY_TARGET_KEY = "PLAY_TARGET";
 

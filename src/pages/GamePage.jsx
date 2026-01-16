@@ -17,7 +17,11 @@ import {
 } from "../chain/config";
 import { suiClient } from "../chain/suiClient";
 import { startGame } from "../game/start";
-import { isWalkableTile, normalizeTileId } from "../game/tiles";
+import {
+  isWalkableTile,
+  normalizeTileId,
+  normalizeDecoId,
+} from "../game/tiles";
 import "./GamePage.css";
 
 const TILE_SIZE = 32;
@@ -354,6 +358,9 @@ export default function GamePage() {
       const newGrid = Array(height)
         .fill(0)
         .map(() => Array(width).fill(0));
+      const newDecoGrid = Array(height)
+        .fill(0)
+        .map(() => Array(width).fill(0));
 
       chunkEntries.forEach((entry, index) => {
         const response = chunkObjects[index];
@@ -363,12 +370,17 @@ export default function GamePage() {
         const tiles = normalizeMoveVector(fields.tiles).map((tile) =>
           normalizeTileId(clampU8(parseU32Value(tile) ?? 0, 255))
         );
+        const decorations = normalizeMoveVector(fields.decorations ?? []).map(
+          (deco) => normalizeDecoId(clampU8(parseU32Value(deco) ?? 0, 255))
+        );
 
         for (let y = 0; y < CHUNK_SIZE; y++) {
           for (let x = 0; x < CHUNK_SIZE; x++) {
             const idx = y * CHUNK_SIZE + x;
             newGrid[entry.cy * CHUNK_SIZE + y][entry.cx * CHUNK_SIZE + x] =
               tiles[idx] ?? 0;
+            newDecoGrid[entry.cy * CHUNK_SIZE + y][entry.cx * CHUNK_SIZE + x] =
+              decorations[idx] ?? 0;
           }
         }
       });
@@ -378,6 +390,7 @@ export default function GamePage() {
         width,
         height,
         grid: newGrid,
+        decoGrid: newDecoGrid,
         worldId: targetWorldId,
       };
       localStorage.setItem("CUSTOM_MAP", JSON.stringify(mapData));

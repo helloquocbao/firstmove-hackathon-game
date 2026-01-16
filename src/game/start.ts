@@ -2,10 +2,13 @@
 import kaboom, { GameObj } from "kaboom";
 import {
   TILE_DEFS,
+  DECO_DEFS,
   TILE_SPRITE_SIZE,
   getTileDef,
+  getDecoDef,
   isTileDefined,
   isWalkableTile,
+  isDecoBlocking,
 } from "./tiles";
 
 let started = false;
@@ -17,6 +20,7 @@ const PLAY_TARGET_KEY = "PLAY_TARGET";
 type GameMapData = {
   tileSize: number;
   grid: number[][];
+  decoGrid?: number[][];
   worldId?: string;
 };
 
@@ -67,6 +71,10 @@ export function startGame(mapData?: GameMapData) {
     loadSprite(tile.name, tile.image);
   });
 
+  DECO_DEFS.forEach((deco) => {
+    loadSprite(deco.name, deco.image);
+  });
+
   /* ================= MAP ================= */
 
   function loadMap(): GameMapData | null {
@@ -92,8 +100,14 @@ export function startGame(mapData?: GameMapData) {
     return vec2(64, 64);
   }
 
-  function drawTiles(grid: number[][], tileSize: number) {
+  function drawTiles(
+    grid: number[][],
+    decoGrid: number[][] | undefined,
+    tileSize: number
+  ) {
     const scaleFactor = tileSize / TILE_SPRITE_SIZE;
+
+    // Layer 1: Base tiles
     for (let y = 0; y < grid.length; y++) {
       for (let x = 0; x < grid[y].length; x++) {
         const tileId = grid[y][x];
@@ -104,8 +118,32 @@ export function startGame(mapData?: GameMapData) {
           pos(x * tileSize, y * tileSize),
           anchor("topleft"),
           scale(scaleFactor),
-          tileDef.kind === "abyssWall" ? "abyss-wall" : "ground",
+          tileDef.kind === "abyss" ? "abyss" : "ground",
         ]);
+      }
+    }
+
+    // Layer 2: Decorations
+    if (decoGrid) {
+      for (let y = 0; y < decoGrid.length; y++) {
+        for (let x = 0; x < (decoGrid[y]?.length ?? 0); x++) {
+          const decoId = decoGrid[y]?.[x] ?? 0;
+          if (decoId === 0) continue;
+          const decoDef = getDecoDef(decoId);
+          if (!decoDef) continue;
+          const decoObj = add([
+            sprite(decoDef.name),
+            pos(x * tileSize, y * tileSize),
+            anchor("topleft"),
+            scale(scaleFactor),
+            "decoration",
+          ]);
+          // Add collision area for blocking decorations
+          if (decoDef.kind === "blocking") {
+            decoObj.use(area({ shape: new Rect(vec2(0), tileSize, tileSize) }));
+            decoObj.use(body({ isStatic: true }));
+          }
+        }
       }
     }
   }
@@ -121,7 +159,7 @@ export function startGame(mapData?: GameMapData) {
 
     const tileSize = resolvedMap.tileSize || TILE;
     const spawnPos = findSpawn(resolvedMap.grid, tileSize);
-    drawTiles(resolvedMap.grid, tileSize);
+    drawTiles(resolvedMap.grid, resolvedMap.decoGrid, tileSize);
 
     /* ================= PLAYER ================= */
 

@@ -173,7 +173,7 @@ export function startGame(mapData?: GameMapData) {
         facing: 1, // 1 right, -1 left
         attacking: false,
       },
-      scale(0.5),
+      scale(0.3),
       "player",
     ]);
 
@@ -212,7 +212,10 @@ export function startGame(mapData?: GameMapData) {
       });
     }
 
-    onUpdate(() => camPos(player.pos));
+    onUpdate(() => {
+      camPos(player.pos);
+      camScale(1.3); // Zoom camera 2x để nhìn rõ hơn
+    });
 
     /* ================= INPUT STATE ================= */
 
@@ -260,8 +263,8 @@ export function startGame(mapData?: GameMapData) {
 
     function spawnAttackHitbox() {
       add([
-        pos(player.pos.x + player.facing * 22, player.pos.y),
-        area({ shape: new Rect(vec2(0), 20, 40) }),
+        pos(player.pos.x + player.facing * 20, player.pos.y),
+        area({ shape: new Rect(vec2(1), 10, 20) }),
         anchor("center"),
         lifespan(0.1),
         "attack",

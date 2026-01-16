@@ -82,8 +82,10 @@
 .game-shell {
   position: relative;
   z-index: 1;
-  max-width: 1200px;
+  width: 100%;
+  max-width: 100%;
   margin: 0 auto;
+  padding: 0 24px;
   display: flex;
   flex-direction: column;
   gap: 24px;
@@ -143,13 +145,15 @@
 
 .game-stage {
   display: flex;
-  flex-direction: column;
-  align-items: center;
+  flex-direction: row;
+  align-items: flex-start;
   gap: 24px;
+  width: 100%;
 }
 
 .game-frame {
-  width: min(960px, 100%);
+  flex: 0 0 80%;
+  max-width: 80%;
   background: rgba(255, 255, 255, 0.92);
   border-radius: 22px;
   border: 2px solid rgba(34, 50, 71, 0.45);
@@ -159,10 +163,8 @@
 
 .game-frame canvas {
   display: block;
-  width: 960px;
-  max-width: 100%;
-  height: auto;
-  aspect-ratio: 16 / 9;
+  width: 100%;
+  height: calc(100vh - 200px);
   border-radius: 14px;
   border: 2px solid rgba(34, 50, 71, 0.35);
   background: #cbe8ff;
@@ -170,7 +172,8 @@
 }
 
 .game-info {
-  width: min(320px, 100%);
+  flex: 0 0 calc(20% - 24px);
+  max-width: calc(20% - 24px);
   background: rgba(255, 255, 255, 0.88);
   border-radius: 20px;
   border: 2px solid rgba(34, 50, 71, 0.35);
@@ -180,6 +183,8 @@
   flex-direction: column;
   gap: 12px;
   font-family: var(--font-mono);
+  max-height: calc(100vh - 200px);
+  overflow-y: auto;
 }
 
 .game-info__title {
@@ -270,9 +275,30 @@
   font-size: 12px;
 }
 
+@media (max-width: 900px) {
+  .game-stage {
+    flex-direction: column;
+  }
+
+  .game-frame {
+    flex: 1 1 100%;
+    max-width: 100%;
+  }
+
+  .game-info {
+    flex: 1 1 100%;
+    max-width: 100%;
+    max-height: none;
+  }
+}
+
 @media (max-width: 720px) {
   .game-page {
     padding: 24px 16px 48px;
+  }
+
+  .game-shell {
+    padding: 0 8px;
   }
 }
 

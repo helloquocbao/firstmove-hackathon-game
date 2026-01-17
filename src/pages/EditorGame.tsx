@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import {
   ConnectButton,
   useCurrentAccount,
@@ -1209,24 +1209,22 @@ export default function EditorGame() {
   return (
     <div className="editor-page">
       <div className="editor-shell">
-        <header className="editor-header">
-          <div>
-            <div className="editor-eyebrow">Skyworld editor</div>
-            <h1 className="editor-title">CHUNK MAP EDITOR</h1>
-            <p className="editor-subtitle">
-              Carve floating chunks and push updates on-chain.
-            </p>
-          </div>
+        <header className="editor-nav">
+          <Link to="/" className="brand">
+            <div className="brand__mark">CW</div>
+            <div>
+              <div className="brand__name">Chunk World</div>
+              <div className="brand__tag">Map Editor</div>
+            </div>
+          </Link>
 
-          <div className="editor-wallet">
-            <div className="wallet-connect-btn">
-              <ConnectButton />
-            </div>
-            <div className="wallet-meta">
-              <span>Wallet</span>
-              <span>{shortAddress(account?.address) || "not connected"}</span>
-            </div>
-          </div>
+          <nav className="editor-nav__links">
+            <Link to="/">Home</Link>
+            <Link to="/game">Play</Link>
+            <Link to="/marketplace">Marketplace</Link>
+          </nav>
+
+          <ConnectButton />
         </header>
 
         <div className="editor-layout">

@@ -47,6 +47,13 @@ export class EnemyMaintainer {
   private lastTxCount: bigint = BigInt(0);
   private currentDifficulty: DifficultyInfo | null = null;
 
+  // Cache để giảm số lần call RPC
+  private cachedNetworkScore: number = 50;
+  private cachedValidatorHealth: number = 100;
+  private lastFetchTime: number = 0;
+  private readonly CACHE_DURATION_MS = 30000; // Cache 30 giây
+  private isFetching: boolean = false;
+
   constructor(config: MaintainerConfig) {
     this.config = config;
     this.client = new SuiClient({ url: config.rpcUrl });
@@ -92,19 +99,43 @@ export class EnemyMaintainer {
   }
 
   private async checkAndMaintain() {
+    const now = Date.now();
+    const shouldFetchFromSui =
+      now - this.lastFetchTime > this.CACHE_DURATION_MS;
+
+    let networkScore = this.cachedNetworkScore;
+    let validatorHealth = this.cachedValidatorHealth;
+
+    // Chỉ fetch từ Sui nếu cache hết hạn và không đang fetch
+    if (shouldFetchFromSui && !this.isFetching) {
+      this.isFetching = true;
+      try {
+        const [systemState, checkpoint] = await Promise.all([
+          this.client.getLatestSuiSystemState(),
+          this.client.getCheckpoint({ id: "latest" }),
+        ]);
+
+        networkScore = this.calculateNetworkScore(systemState, checkpoint);
+        validatorHealth = this.calculateValidatorHealth(systemState);
+
+        // Update cache
+        this.cachedNetworkScore = networkScore;
+        this.cachedValidatorHealth = validatorHealth;
+        this.lastFetchTime = now;
+
+        console.log("[EnemyMaintainer] Fetched fresh data from Sui");
+      } catch (error) {
+        console.warn(
+          "[EnemyMaintainer] Sui fetch failed, using cached data:",
+          error
+        );
+      } finally {
+        this.isFetching = false;
+      }
+    }
+
+    // Tính toán difficulty (dùng cached data nếu không fetch mới)
     try {
-      // Lấy thông tin từ Sui
-      const [systemState, checkpoint] = await Promise.all([
-        this.client.getLatestSuiSystemState(),
-        this.client.getCheckpoint({ id: "latest" }),
-      ]);
-
-      // Tính network score
-      const networkScore = this.calculateNetworkScore(systemState, checkpoint);
-
-      // Tính validator health
-      const validatorHealth = this.calculateValidatorHealth(systemState);
-
       // Tính effective difficulty và target count
       const networkFactor = 0.8 + (networkScore / 100) * 0.4; // 0.8 - 1.2
       const validatorFactor = 0.9 + (validatorHealth / 100) * 0.2; // 0.9 - 1.1

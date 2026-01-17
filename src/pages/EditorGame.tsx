@@ -1314,7 +1314,7 @@ export default function EditorGame() {
               <div className="flex gap-2">
                 <button
                   className={`btn ${
-                    paintLayer === "base" ? "btn--primary" : "btn--outline"
+                    paintLayer === "base" ? "btn-active-chunk" : "btn--outline"
                   }`}
                   onClick={() => setPaintLayer("base")}
                 >
@@ -1322,7 +1322,7 @@ export default function EditorGame() {
                 </button>
                 <button
                   className={`btn ${
-                    paintLayer === "decor" ? "btn--primary" : "btn--outline"
+                    paintLayer === "decor" ? "btn-active-chunk" : "btn--outline"
                   }`}
                   onClick={() => setPaintLayer("decor")}
                 >
@@ -1796,7 +1796,7 @@ export default function EditorGame() {
                   <div className="flex gap-2" style={{ marginBottom: "12px" }}>
                     <button
                       className={`btn ${
-                        paintLayer === "base" ? "btn--primary" : "btn--outline"
+                        paintLayer === "base" ? "btn-active-chunk" : "btn--outline"
                       }`}
                       onClick={() => setPaintLayer("base")}
                     >
@@ -1804,7 +1804,7 @@ export default function EditorGame() {
                     </button>
                     <button
                       className={`btn ${
-                        paintLayer === "decor" ? "btn--primary" : "btn--outline"
+                        paintLayer === "decor" ? "btn-active-chunk" : "btn--outline"
                       }`}
                       onClick={() => setPaintLayer("decor")}
                     >
@@ -1857,7 +1857,7 @@ export default function EditorGame() {
 
               <div className="editor-modal__actions">
                 <button
-                  className="btn btn--primary"
+                  className="btn btn-save-chunk"
                   onClick={saveActiveChunkOnChain}
                   disabled={isBusy || !isConnected || !canSaveActiveChunk}
                 >

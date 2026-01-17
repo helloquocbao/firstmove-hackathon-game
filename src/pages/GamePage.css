@@ -4,10 +4,10 @@
   inset: 0;
   overflow: hidden;
   color: #e8f4ff;
-  background: linear-gradient(180deg, 
-    #1a3a5c 0%, 
-    #0d2137 50%,
-    #0a1929 100%);
+  background: linear-gradient(180deg,
+      #1a3a5c 0%,
+      #0d2137 50%,
+      #0a1929 100%);
 }
 
 /* Animated sky background */
@@ -80,9 +80,9 @@
   inset: auto 0 0 0;
   height: 200px;
   background: linear-gradient(180deg,
-    transparent 0%,
-    rgba(10, 25, 41, 0.4) 50%,
-    rgba(10, 25, 41, 0.8) 100%);
+      transparent 0%,
+      rgba(10, 25, 41, 0.4) 50%,
+      rgba(10, 25, 41, 0.8) 100%);
 }
 
 /* ===== FULLSCREEN GAME FRAME ===== */
@@ -130,16 +130,17 @@
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  padding: 14px 24px 14px 56px; /* Left padding for toggle button */
+  padding: 14px 24px 14px 56px;
+  /* Left padding for toggle button */
   background: linear-gradient(180deg,
-    rgba(13, 33, 55, 0.95) 0%,
-    rgba(13, 33, 55, 0.85) 60%,
-    transparent 100%);
+      rgba(13, 33, 55, 0.95) 0%,
+      rgba(13, 33, 55, 0.85) 60%,
+      transparent 100%);
   pointer-events: none;
   transition: opacity 0.3s ease, transform 0.3s ease;
 }
 
-.game-header > * {
+.game-header>* {
   pointer-events: auto;
 }
 
@@ -208,13 +209,13 @@
   width: 300px;
   max-width: calc(100vw - 32px);
   background: linear-gradient(180deg,
-    rgba(13, 33, 55, 0.95) 0%,
-    rgba(10, 25, 41, 0.98) 100%);
+      rgba(13, 33, 55, 0.95) 0%,
+      rgba(10, 25, 41, 0.98) 100%);
   backdrop-filter: blur(20px);
   border-radius: 16px;
   border: 1px solid rgba(126, 184, 232, 0.15);
   padding: 20px;
-  box-shadow: 
+  box-shadow:
     0 8px 32px rgba(0, 0, 0, 0.4),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
   display: flex;
@@ -453,12 +454,16 @@
 }
 
 @keyframes drift {
-  0%, 100% {
+
+  0%,
+  100% {
     transform: translateX(0) translateY(0);
   }
+
   33% {
     transform: translateX(20px) translateY(-5px);
   }
+
   66% {
     transform: translateX(-10px) translateY(5px);
   }
@@ -485,4 +490,99 @@
 /* ConnectButton override for dark theme */
 .game-info [class*="ConnectButton"] {
   font-family: var(--font-mono) !important;
+}
+
+/* ===== MODAL ===== */
+.game-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.game-modal {
+  background: linear-gradient(180deg, #1a3a5c 0%, #0d2137 100%);
+  border: 2px solid rgba(126, 184, 232, 0.3);
+  border-radius: 16px;
+  width: 100%;
+  max-width: 400px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.game-modal__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(126, 184, 232, 0.15);
+}
+
+.game-modal__header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #7eb8e8;
+}
+
+.game-modal__close {
+  background: transparent;
+  border: none;
+  color: #7eb8e8;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px 8px;
+  transition: color 0.2s ease;
+}
+
+.game-modal__close:hover {
+  color: #ff6b6b;
+}
+
+.game-modal__body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.game-modal__body p {
+  margin: 0;
+  color: #a8c8e8;
+  font-size: 14px;
+}
+
+.game-modal__body input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1.5px solid rgba(126, 184, 232, 0.3);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  color: #e8f4ff;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.game-modal__body input:focus {
+  border-color: rgba(126, 184, 232, 0.6);
+}
+
+.game-modal__body input::placeholder {
+  color: rgba(168, 200, 232, 0.5);
+}
+
+.game-modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 20px;
+  border-top: 1px solid rgba(126, 184, 232, 0.15);
 }

@@ -58,6 +58,22 @@ export default function GamePage() {
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
+  // Character stats
+  const [characterId, setCharacterId] = useState("");
+  const [characterName, setCharacterName] = useState("");
+  const [characterHealth, setCharacterHealth] = useState(0);
+  const [characterPower, setCharacterPower] = useState(0);
+  const [characterPotential, setCharacterPotential] = useState(0);
+  const [characterDailyPlays, setCharacterDailyPlays] = useState(0);
+  const [characterFreePlays, setCharacterFreePlays] = useState(0);
+
+  // Create character modal
+  const [showCreateCharacterModal, setShowCreateCharacterModal] =
+    useState(false);
+  const [newCharacterName, setNewCharacterName] = useState("");
+  const [isCreatingCharacter, setIsCreatingCharacter] = useState(false);
+  const [createCharacterError, setCreateCharacterError] = useState("");
+
   useEffect(() => {
     startGame();
     handletests();
@@ -140,7 +156,46 @@ export default function GamePage() {
 
   useEffect(() => {
     void loadRewardBalance();
+    void loadCharacter();
   }, [account?.address]);
+
+  async function loadCharacter() {
+    if (!account?.address || !PACKAGE_ID) {
+      setCharacterId("");
+      setCharacterName("");
+      setCharacterHealth(0);
+      setCharacterPower(0);
+      setCharacterPotential(0);
+      setCharacterDailyPlays(0);
+      setCharacterFreePlays(0);
+      return;
+    }
+    try {
+      const characterType = `${PACKAGE_ID}::world::CharacterNFT`;
+      const result = await suiClient.getOwnedObjects({
+        owner: account.address,
+        filter: { StructType: characterType },
+        options: { showContent: true },
+      });
+
+      if (result.data.length > 0) {
+        const obj = result.data[0];
+        const content = obj.data?.content;
+        if (content && content.dataType === "moveObject") {
+          const fields = normalizeMoveFields(content.fields);
+          setCharacterId(obj.data?.objectId ?? "");
+          setCharacterName(String(fields.name ?? ""));
+          setCharacterHealth(parseU32Value(fields.health) ?? 100);
+          setCharacterPower(parseU32Value(fields.power) ?? 0);
+          setCharacterPotential(parseU32Value(fields.potential) ?? 0);
+          setCharacterDailyPlays(parseU32Value(fields.daily_plays) ?? 0);
+          setCharacterFreePlays(parseU32Value(fields.free_daily_plays) ?? 0);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to load character:", error);
+    }
+  }
 
   const worldListOptions = useMemo(() => {
     const ids = new Set();
@@ -219,8 +274,8 @@ export default function GamePage() {
               typeof record.world_id === "string"
                 ? record.world_id
                 : typeof record.worldId === "string"
-                  ? record.worldId
-                  : "";
+                ? record.worldId
+                : "";
             if (id) ids.add(id);
           }
 
@@ -319,6 +374,8 @@ export default function GamePage() {
     if (!raw) return;
     try {
       const parsed = JSON.parse(raw);
+      // Update characterHealth with current value
+      parsed.characterHealth = characterHealth || 100;
       startGame(parsed);
     } catch (error) {
       console.error(error);
@@ -396,6 +453,7 @@ export default function GamePage() {
         grid: newGrid,
         decoGrid: newDecoGrid,
         worldId: targetWorldId,
+        characterHealth: characterHealth || 100,
       };
       localStorage.setItem("CUSTOM_MAP", JSON.stringify(mapData));
       startGame(mapData);
@@ -449,6 +507,12 @@ export default function GamePage() {
       return;
     }
 
+    // Check if character exists
+    if (!characterId) {
+      setShowCreateCharacterModal(true);
+      return;
+    }
+
     const playableCoin = await getPlayableCoin();
     if (!playableCoin) {
       setPlayError("Need at least 5 CHUNK coin to play.");
@@ -492,8 +556,8 @@ export default function GamePage() {
         typeof parsed.play_id === "string"
           ? parsed.play_id
           : typeof parsed.play_id === "number"
-            ? String(parsed.play_id)
-            : "";
+          ? String(parsed.play_id)
+          : "";
       console.log("nextPlayId", nextPlayId);
       if (!nextPlayId) {
         setPlayError("Play created but play_id not found.");
@@ -585,8 +649,8 @@ export default function GamePage() {
         typeof parsed.reward === "string"
           ? parsed.reward
           : typeof parsed.reward === "number"
-            ? String(parsed.reward)
-            : "";
+          ? String(parsed.reward)
+          : "";
 
       resetPlayState(
         rewardValue ? `Claimed ${rewardValue} CHUNK.` : "Claimed reward."
@@ -639,6 +703,50 @@ export default function GamePage() {
     void loadWorldMap(selectedWorldId);
   }
 
+  async function handleCreateCharacter() {
+    setCreateCharacterError("");
+
+    if (!newCharacterName.trim()) {
+      setCreateCharacterError("Character name is required.");
+      return;
+    }
+    if (newCharacterName.trim().length > 32) {
+      setCreateCharacterError("Name must be 32 characters or less.");
+      return;
+    }
+    if (!WORLD_REGISTRY_ID) {
+      setCreateCharacterError("Missing world registry id.");
+      return;
+    }
+
+    setIsCreatingCharacter(true);
+    try {
+      const tx = new Transaction();
+      tx.moveCall({
+        target: `${PACKAGE_ID}::world::create_character`,
+        arguments: [
+          tx.object(WORLD_REGISTRY_ID),
+          tx.pure.string(newCharacterName.trim()),
+        ],
+      });
+
+      await signAndExecute({ transaction: tx });
+
+      // Reload character after creation
+      await loadCharacter();
+
+      setShowCreateCharacterModal(false);
+      setNewCharacterName("");
+      setPlayNotice("Character created! You can now start playing.");
+    } catch (error) {
+      setCreateCharacterError(
+        error instanceof Error ? error.message : String(error)
+      );
+    } finally {
+      setIsCreatingCharacter(false);
+    }
+  }
+
   return (
     <div className="game-page">
       <div className="game-bg">
@@ -657,7 +765,9 @@ export default function GamePage() {
         {isHeaderCollapsed ? "☰" : "✕"}
       </button>
       <button
-        className={`game-toggle-btn game-toggle-sidebar ${!isSidebarCollapsed ? "sidebar-open" : ""}`}
+        className={`game-toggle-btn game-toggle-sidebar ${
+          !isSidebarCollapsed ? "sidebar-open" : ""
+        }`}
         onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
         title={isSidebarCollapsed ? "Show panel" : "Hide panel"}
       >
@@ -665,7 +775,9 @@ export default function GamePage() {
       </button>
 
       <div className="game-shell">
-        <header className={`game-header ${isHeaderCollapsed ? "collapsed" : ""}`}>
+        <header
+          className={`game-header ${isHeaderCollapsed ? "collapsed" : ""}`}
+        >
           <div>
             <div className="game-eyebrow">Skyworld run</div>
             <h1 className="game-title">Chunk adventure</h1>
@@ -688,7 +800,9 @@ export default function GamePage() {
             <canvas id="game" />
           </div>
 
-          <aside className={`game-info ${isSidebarCollapsed ? "collapsed" : ""}`}>
+          <aside
+            className={`game-info ${isSidebarCollapsed ? "collapsed" : ""}`}
+          >
             <div className="game-info__title flex justify-between items-center">
               <span className="font-bold">MISSION</span>
             </div>
@@ -736,6 +850,41 @@ export default function GamePage() {
               <span>{rewardBalance}</span>
             </div>
             <ConnectButton />
+
+            {characterId && (
+              <>
+                <div className="game-info__title">Character</div>
+                <div className="game-info__card">
+                  <span>Name</span>
+                  <span>{characterName || "-"}</span>
+                </div>
+                <div className="game-info__card">
+                  <span>❤️ Health</span>
+                  <span>{characterHealth}</span>
+                </div>
+                <div className="game-info__card">
+                  <span>⚔️ Power</span>
+                  <span>{characterPower}</span>
+                </div>
+                <div className="game-info__card">
+                  <span>✨ Potential</span>
+                  <span>{characterPotential}</span>
+                </div>
+                <div className="game-info__card">
+                  <span>🎮 Daily Plays</span>
+                  <span>{characterDailyPlays}/3</span>
+                </div>
+                <div className="game-info__card">
+                  <span>🆓 Free Plays</span>
+                  <span>{characterFreePlays}/2</span>
+                </div>
+              </>
+            )}
+            {!characterId && account?.address && (
+              <div className="game-info__note">
+                No character found. Create one in Editor.
+              </div>
+            )}
 
             <div className="game-info__title">Rewards</div>
             <div className="game-info__card">
@@ -789,6 +938,56 @@ export default function GamePage() {
           </aside>
         </div>
       </div>
+
+      {/* Create Character Modal */}
+      {showCreateCharacterModal && (
+        <div className="game-modal-overlay">
+          <div className="game-modal">
+            <div className="game-modal__header">
+              <h2>Create Character</h2>
+              <button
+                className="game-modal__close"
+                onClick={() => setShowCreateCharacterModal(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="game-modal__body">
+              <p>You need a character to play. Create one now!</p>
+              <div className="game-field">
+                <label>Character Name</label>
+                <input
+                  type="text"
+                  value={newCharacterName}
+                  onChange={(e) => setNewCharacterName(e.target.value)}
+                  placeholder="Enter name (1-32 chars)"
+                  maxLength={32}
+                  disabled={isCreatingCharacter}
+                />
+              </div>
+              {createCharacterError && (
+                <div className="game-info__error">{createCharacterError}</div>
+              )}
+            </div>
+            <div className="game-modal__footer">
+              <button
+                className="game-btn"
+                onClick={() => setShowCreateCharacterModal(false)}
+                disabled={isCreatingCharacter}
+              >
+                Cancel
+              </button>
+              <button
+                className="game-btn game-btn--primary"
+                onClick={handleCreateCharacter}
+                disabled={isCreatingCharacter || !newCharacterName.trim()}
+              >
+                {isCreatingCharacter ? "Creating..." : "Create Character"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -911,12 +1110,12 @@ function matchesPlayId(parsedJson, targetPlayId) {
     typeof record.play_id === "string"
       ? record.play_id
       : typeof record.play_id === "number"
-        ? String(record.play_id)
-        : typeof record.playId === "string"
-          ? record.playId
-          : typeof record.playId === "number"
-            ? String(record.playId)
-            : "";
+      ? String(record.play_id)
+      : typeof record.playId === "string"
+      ? record.playId
+      : typeof record.playId === "number"
+      ? String(record.playId)
+      : "";
   return candidate === targetPlayId;
 }
 

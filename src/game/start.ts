@@ -22,6 +22,7 @@ type GameMapData = {
   grid: number[][];
   decoGrid?: number[][];
   worldId?: string;
+  characterHealth?: number;
 };
 
 export function startGame(mapData?: GameMapData) {
@@ -56,8 +57,8 @@ export function startGame(mapData?: GameMapData) {
     canvas.height = window.innerHeight;
   });
 
-  debug.inspect = true;
-  debug.showArea = true;
+  // debug.inspect = true;
+
   /* ================= SPRITES ================= */
 
   loadSprite("player-idle", "/sprites/player/Idle.png", {
@@ -521,7 +522,7 @@ export function startGame(mapData?: GameMapData) {
 
     /* ================= PLAYER ================= */
 
-    const PLAYER_MAX_HP = 5;
+    const PLAYER_MAX_HP = resolvedMap?.characterHealth ?? 100;
     let playerHP = PLAYER_MAX_HP;
     let playerInvincible = false;
 
@@ -545,6 +546,8 @@ export function startGame(mapData?: GameMapData) {
     const HP_BAR_WIDTH = 180;
     const HP_BAR_HEIGHT = 16;
     const HP_BAR_PADDING = 3;
+    const HP_BAR_X = 20;
+    const HP_BAR_Y = height() - 50; // Bottom of screen
 
     // HP Bar background
     const hpBarBg = add([
@@ -552,7 +555,7 @@ export function startGame(mapData?: GameMapData) {
         HP_BAR_WIDTH + HP_BAR_PADDING * 2,
         HP_BAR_HEIGHT + HP_BAR_PADDING * 2
       ),
-      pos(20, 20),
+      pos(HP_BAR_X, HP_BAR_Y),
       color(30, 30, 40),
       outline(2, rgb(60, 60, 80)),
       fixed(),
@@ -562,7 +565,7 @@ export function startGame(mapData?: GameMapData) {
     // HP Bar fill
     const hpBarFill = add([
       rect(HP_BAR_WIDTH, HP_BAR_HEIGHT),
-      pos(20 + HP_BAR_PADDING, 20 + HP_BAR_PADDING),
+      pos(HP_BAR_X + HP_BAR_PADDING, HP_BAR_Y + HP_BAR_PADDING),
       color(220, 60, 60),
       fixed(),
       z(1001),
@@ -572,8 +575,8 @@ export function startGame(mapData?: GameMapData) {
     const hpText = add([
       text(`${playerHP}/${PLAYER_MAX_HP}`, { size: 14 }),
       pos(
-        20 + HP_BAR_WIDTH / 2 + HP_BAR_PADDING,
-        20 + HP_BAR_PADDING + HP_BAR_HEIGHT / 2
+        HP_BAR_X + HP_BAR_WIDTH / 2 + HP_BAR_PADDING,
+        HP_BAR_Y + HP_BAR_PADDING + HP_BAR_HEIGHT / 2
       ),
       anchor("center"),
       color(255, 255, 255),
@@ -584,7 +587,10 @@ export function startGame(mapData?: GameMapData) {
     // Heart icon
     add([
       text("❤", { size: 20 }),
-      pos(HP_BAR_WIDTH + 50, 20 + HP_BAR_PADDING + HP_BAR_HEIGHT / 2),
+      pos(
+        HP_BAR_X + HP_BAR_WIDTH + 30,
+        HP_BAR_Y + HP_BAR_PADDING + HP_BAR_HEIGHT / 2
+      ),
       anchor("center"),
       color(255, 100, 100),
       fixed(),
@@ -609,10 +615,12 @@ export function startGame(mapData?: GameMapData) {
     updateHPBar();
 
     // Handle goblin attack hitting player
+    const GOBLIN_DAMAGE = 20;
     onCollide("goblin-attack", "player", () => {
       if (playerInvincible) return;
 
-      playerHP -= 1;
+      playerHP -= GOBLIN_DAMAGE;
+      if (playerHP < 0) playerHP = 0;
       updateHPBar();
 
       if (playerHP <= 0) {

@@ -1319,6 +1319,36 @@ export default function EditorGame() {
             </div>
 
             <div className="panel">
+              <div className="panel__title">Claim chunk</div>
+              <p className="panel__desc">
+                Uses tiles from the selected chunk. Location is random but must
+                touch existing chunks. First chunk is free, then costs increase
+                by 5 coins per chunk (max 20 chunks).
+              </p>
+              <div className="panel__rows">
+                <div>
+                  <span>Selected chunk</span>
+                  <span>{activeChunkLabel}</span>
+                </div>
+              </div>
+              <div className="panel__field">
+                <label>Image URL</label>
+                <input
+                  value={claimImageUrl}
+                  onChange={(event) => setClaimImageUrl(event.target.value)}
+                  placeholder="https://..."
+                />
+              </div>
+              <button
+                className="btn btn--dark"
+                onClick={claimChunkOnChain}
+                disabled={isBusy || !isConnected}
+              >
+                {busyAction === "Claim chunk" ? "Claiming..." : "Claim chunk"}
+              </button>
+            </div>
+
+            <div className="panel">
               <div className="panel__title">World admin</div>
               <p className="panel__desc">
                 Create the shared world object using the admin cap.
@@ -1367,182 +1397,6 @@ export default function EditorGame() {
               >
                 {busyAction === "Create world" ? "Creating..." : "Create world"}
               </button>
-            </div>
-
-            <div className="panel">
-              <div className="panel__title">Claim chunk</div>
-              <p className="panel__desc">
-                Uses tiles from the selected chunk. Location is random but must
-                touch existing chunks. First chunk is free, then costs increase
-                by 5 coins per chunk (max 20 chunks).
-              </p>
-              <div className="panel__rows">
-                <div>
-                  <span>Selected chunk</span>
-                  <span>{activeChunkLabel}</span>
-                </div>
-              </div>
-              <div className="panel__field">
-                <label>Image URL</label>
-                <input
-                  value={claimImageUrl}
-                  onChange={(event) => setClaimImageUrl(event.target.value)}
-                  placeholder="https://..."
-                />
-              </div>
-              <button
-                className="btn btn--dark"
-                onClick={claimChunkOnChain}
-                disabled={isBusy || !isConnected}
-              >
-                {busyAction === "Claim chunk" ? "Claiming..." : "Claim chunk"}
-              </button>
-            </div>
-
-            <div className="panel panel--status">
-              <div className="panel__title">Transaction status</div>
-              <div className="panel__rows">
-                <div>
-                  <span>Wallet</span>
-                  <span>
-                    {shortAddress(account?.address) || "not connected"}
-                  </span>
-                </div>
-                <div>
-                  <span>Action</span>
-                  <span>{busyAction || "idle"}</span>
-                </div>
-                <div>
-                  <span>Digest</span>
-                  <span>{txDigest || "-"}</span>
-                </div>
-              </div>
-              {txError && <div className="panel__error">{txError}</div>}
-            </div>
-
-            <div className="panel">
-              <div className="panel__title">Character</div>
-              <p className="panel__desc">
-                Create your soulbound character to play and earn rewards.
-              </p>
-              {characterId ? (
-                <div className="panel__rows">
-                  <div>
-                    <span>Name</span>
-                    <span>{characterName}</span>
-                  </div>
-                  <div>
-                    <span>Power</span>
-                    <span>{characterPower}</span>
-                  </div>
-                  <div>
-                    <span>Potential</span>
-                    <span>{characterPotential}</span>
-                  </div>
-                  <div>
-                    <span>ID</span>
-                    <span className="panel__value--wrap">
-                      {shortAddress(characterId)}
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div className="panel__field">
-                    <label>Character Name (1-32 chars)</label>
-                    <input
-                      className="input"
-                      type="text"
-                      maxLength={32}
-                      value={characterName}
-                      onChange={(e) => setCharacterName(e.target.value)}
-                      placeholder="Enter name..."
-                    />
-                  </div>
-                  <button
-                    className="btn btn--primary"
-                    onClick={createCharacterOnChain}
-                    disabled={isBusy || !isConnected || !characterName.trim()}
-                  >
-                    {busyAction === "Create character"
-                      ? "Creating..."
-                      : "Create Character"}
-                  </button>
-                </>
-              )}
-            </div>
-
-            <div className="panel">
-              <div className="panel__title">Game Play</div>
-              <p className="panel__desc">
-                Pay 5 REWARD coins to play. Claim reward after completing.
-              </p>
-              <div className="panel__rows">
-                <div>
-                  <span>Reward Coin</span>
-                  <span>
-                    {rewardCoinId ? shortAddress(rewardCoinId) : "none"}
-                  </span>
-                </div>
-              </div>
-              <div className="panel__field">
-                <label>Play ID (for claiming)</label>
-                <input
-                  className="input"
-                  type="text"
-                  value={playId}
-                  onChange={(e) => setPlayId(e.target.value)}
-                  placeholder="Enter play ID..."
-                />
-              </div>
-              <div className="panel__field">
-                <label>Play Key (hex)</label>
-                <input
-                  className="input"
-                  type="text"
-                  value={playKey}
-                  onChange={(e) => setPlayKey(e.target.value)}
-                  placeholder="Key for claiming..."
-                />
-              </div>
-              <div
-                className="panel__actions"
-                style={{ gap: "8px", display: "flex", flexWrap: "wrap" }}
-              >
-                <button
-                  className="btn btn--outline"
-                  onClick={playFreeOnChain}
-                  disabled={isBusy || !isConnected || !characterId}
-                >
-                  {busyAction === "Free Play (2/day)"
-                    ? "Playing..."
-                    : "Free Play (2/day)"}
-                </button>
-                <button
-                  className="btn btn--primary"
-                  onClick={playOnChain}
-                  disabled={isBusy || !isConnected || !characterId}
-                >
-                  {busyAction === "Play (5 coins)"
-                    ? "Playing..."
-                    : "Play (5 coins, 3/day)"}
-                </button>
-                <button
-                  className="btn btn--dark"
-                  onClick={claimRewardOnChain}
-                  disabled={
-                    isBusy ||
-                    !isConnected ||
-                    !characterId ||
-                    !playId ||
-                    !playKey
-                  }
-                >
-                  {busyAction === "Claim reward"
-                    ? "Claiming..."
-                    : "Claim Reward"}
-                </button>
-              </div>
             </div>
           </aside>
         </div>

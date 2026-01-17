@@ -10,6 +10,12 @@ import {
   isWalkableTile,
   isDecoBlocking,
 } from "./tiles";
+import {
+  initEnemyMaintainer,
+  stopEnemyMaintainer,
+  EnemyConfig,
+  DifficultyInfo,
+} from "./enemyMaintainer";
 
 let started = false;
 const TILE = 32;
@@ -22,6 +28,9 @@ type GameMapData = {
   grid: number[][];
   decoGrid?: number[][];
   worldId?: string;
+  characterHealth?: number;
+  difficulty?: number; // 1-9 from WorldMap
+  chunkCount?: number; // Number of chunks
 };
 
 export function startGame(mapData?: GameMapData) {
@@ -56,8 +65,8 @@ export function startGame(mapData?: GameMapData) {
     canvas.height = window.innerHeight;
   });
 
-  debug.inspect = true;
-  debug.showArea = true;
+  // debug.inspect = true;
+
   /* ================= SPRITES ================= */
 
   loadSprite("player-idle", "/sprites/player/Idle.png", {
@@ -203,13 +212,34 @@ export function startGame(mapData?: GameMapData) {
 
     /* ================= GOBLIN SYSTEM ================= */
 
+    // Difficulty-based stats (matching enemyMaintainer.ts)
+    const DIFFICULTY_STATS: Record<
+      number,
+      { hp: number; damage: number; speed: number }
+    > = {
+      1: { hp: 2, damage: 5, speed: 35 },
+      2: { hp: 3, damage: 8, speed: 40 },
+      3: { hp: 4, damage: 10, speed: 45 },
+      4: { hp: 5, damage: 12, speed: 50 },
+      5: { hp: 6, damage: 15, speed: 55 },
+      6: { hp: 8, damage: 18, speed: 60 },
+      7: { hp: 10, damage: 22, speed: 65 },
+      8: { hp: 15, damage: 28, speed: 70 },
+      9: { hp: 20, damage: 35, speed: 75 },
+    };
+
+    const currentDifficulty = resolvedMap.difficulty ?? 1;
+    const diffStats =
+      DIFFICULTY_STATS[currentDifficulty] ?? DIFFICULTY_STATS[1];
+
     const GOBLIN_CONFIG = {
-      speed: 80,
+      speed: diffStats.speed,
       chaseRange: 150,
       attackRange: 40,
       attackCooldown: 1.5,
       patrolRange: 100,
-      health: 3,
+      health: diffStats.hp,
+      damage: diffStats.damage,
     };
 
     type GoblinState = "idle" | "patrol" | "chase" | "attack";
@@ -236,7 +266,17 @@ export function startGame(mapData?: GameMapData) {
       return spawns;
     }
 
-    function spawnGoblin(spawnX: number, spawnY: number) {
+    function spawnGoblin(
+      spawnX: number,
+      spawnY: number,
+      customHp?: number,
+      customDamage?: number,
+      customSpeed?: number
+    ) {
+      const hp = customHp ?? GOBLIN_CONFIG.health;
+      const damage = customDamage ?? 20;
+      const speed = customSpeed ?? GOBLIN_CONFIG.speed;
+
       const goblin = add([
         sprite("goblin", { anim: "idle" }),
         pos(spawnX * tileSize + tileSize / 2, spawnY * tileSize + tileSize / 2),
@@ -246,8 +286,10 @@ export function startGame(mapData?: GameMapData) {
         {
           state: "idle" as GoblinState,
           facing: 1,
-          health: GOBLIN_CONFIG.health,
-          maxHealth: GOBLIN_CONFIG.health,
+          health: hp,
+          maxHealth: hp,
+          damage: damage,
+          speed: speed,
           attackTimer: 0,
           patrolTarget: null as { x: number; y: number } | null,
           patrolOrigin: { x: spawnX, y: spawnY },
@@ -462,6 +504,7 @@ export function startGame(mapData?: GameMapData) {
                 anchor("center"),
                 lifespan(0.12),
                 "goblin-attack",
+                { damage: goblin.damage ?? GOBLIN_CONFIG.damage },
               ]);
             });
           }
@@ -476,17 +519,100 @@ export function startGame(mapData?: GameMapData) {
     }
 
     // Spawn goblins on map
-    const goblinCount = Math.max(
+    const mapWidth = resolvedMap.grid[0]?.length ?? 0;
+    const mapHeight = resolvedMap.grid.length;
+    const baseDifficulty = resolvedMap.difficulty ?? 1;
+    const chunkCount =
+      resolvedMap.chunkCount ??
+      Math.max(
+        1,
+        Math.ceil((mapWidth * mapHeight) / (CHUNK_SIZE * CHUNK_SIZE))
+      );
+
+    // Số quái ban đầu dựa trên difficulty (giảm để game dễ hơn lúc đầu)
+    // Difficulty 1: chỉ 1 quái, Difficulty 9: nhiều hơn
+    const enemiesPerChunk = 0.3 + (baseDifficulty - 1) * 0.15; // 0.3 -> 1.5
+    const initialGoblinCount = Math.max(
       1,
-      Math.floor(
-        (resolvedMap.grid.length * (resolvedMap.grid[0]?.length ?? 0)) / 50
-      )
+      Math.floor(chunkCount * enemiesPerChunk)
     );
-    const goblinSpawns = findGoblinSpawns(resolvedMap.grid, goblinCount);
-    const goblins = goblinSpawns.map((spawn) => spawnGoblin(spawn.x, spawn.y));
+    const goblinSpawns = findGoblinSpawns(resolvedMap.grid, initialGoblinCount);
+    const goblins: ReturnType<typeof spawnGoblin>[] = goblinSpawns.map(
+      (spawn) =>
+        spawnGoblin(
+          spawn.x,
+          spawn.y,
+          GOBLIN_CONFIG.health,
+          GOBLIN_CONFIG.damage,
+          GOBLIN_CONFIG.speed
+        )
+    );
+
+    // ===== ENEMY MAINTAINER =====
+    const RPC_URL = "https://fullnode.testnet.sui.io:443";
+
+    // Hàm spawn goblin từ EnemyMaintainer
+    function spawnGoblinFromMaintainer(config: EnemyConfig) {
+      // Tìm vị trí spawn xa player
+      const candidates: { x: number; y: number }[] = [];
+      for (let y = 0; y < mapHeight; y++) {
+        for (let x = 0; x < mapWidth; x++) {
+          if (isWalkableTile(resolvedMap.grid[y]?.[x] ?? 0)) {
+            const tileX = x * tileSize + tileSize / 2;
+            const tileY = y * tileSize + tileSize / 2;
+            const dist = Math.sqrt(
+              (player.pos.x - tileX) ** 2 + (player.pos.y - tileY) ** 2
+            );
+            // Spawn xa player ít nhất 4 tiles
+            if (dist > tileSize * 4) {
+              candidates.push({ x, y });
+            }
+          }
+        }
+      }
+
+      if (candidates.length === 0) return;
+
+      const spawn = candidates[Math.floor(Math.random() * candidates.length)];
+      const newGoblin = spawnGoblin(
+        spawn.x,
+        spawn.y,
+        config.baseHp,
+        config.baseDamage,
+        config.baseSpeed
+      );
+      goblins.push(newGoblin);
+      console.log(
+        `[Maintainer] Spawned goblin at (${spawn.x}, ${spawn.y}) HP:${config.baseHp} DMG:${config.baseDamage}`
+      );
+    }
+
+    // Khởi tạo maintainer
+    const maintainer = initEnemyMaintainer({
+      rpcUrl: RPC_URL,
+      baseDifficulty,
+      chunkCount,
+      onSpawnEnemy: spawnGoblinFromMaintainer,
+      onDifficultyUpdate: (info: DifficultyInfo) => {
+        // Emit event để UI có thể hiển thị
+        window.dispatchEvent(
+          new CustomEvent("game:difficulty-update", { detail: info })
+        );
+      },
+    });
+
+    // Cập nhậ t số quái ban đầu
+    maintainer.updateEnemyCount(goblins.length);
+
+    // Start checking mỗi 10 giây
+    maintainer.start(10000);
 
     // Update all goblins
     onUpdate(() => {
+      // Đếm số quái còn sống và cập nhật maintainer
+      const aliveGoblins = goblins.filter((g) => g.exists());
+      maintainer.updateEnemyCount(aliveGoblins.length);
+
       goblins.forEach((goblin) => {
         if (goblin.exists()) {
           // Check if goblin is on dangerous tile (abyss/void) - destroy it
@@ -521,7 +647,7 @@ export function startGame(mapData?: GameMapData) {
 
     /* ================= PLAYER ================= */
 
-    const PLAYER_MAX_HP = 5;
+    const PLAYER_MAX_HP = resolvedMap?.characterHealth ?? 100;
     let playerHP = PLAYER_MAX_HP;
     let playerInvincible = false;
 
@@ -545,6 +671,8 @@ export function startGame(mapData?: GameMapData) {
     const HP_BAR_WIDTH = 180;
     const HP_BAR_HEIGHT = 16;
     const HP_BAR_PADDING = 3;
+    const HP_BAR_X = 20;
+    const HP_BAR_Y = height() - 50; // Bottom of screen
 
     // HP Bar background
     const hpBarBg = add([
@@ -552,7 +680,7 @@ export function startGame(mapData?: GameMapData) {
         HP_BAR_WIDTH + HP_BAR_PADDING * 2,
         HP_BAR_HEIGHT + HP_BAR_PADDING * 2
       ),
-      pos(20, 20),
+      pos(HP_BAR_X, HP_BAR_Y),
       color(30, 30, 40),
       outline(2, rgb(60, 60, 80)),
       fixed(),
@@ -562,7 +690,7 @@ export function startGame(mapData?: GameMapData) {
     // HP Bar fill
     const hpBarFill = add([
       rect(HP_BAR_WIDTH, HP_BAR_HEIGHT),
-      pos(20 + HP_BAR_PADDING, 20 + HP_BAR_PADDING),
+      pos(HP_BAR_X + HP_BAR_PADDING, HP_BAR_Y + HP_BAR_PADDING),
       color(220, 60, 60),
       fixed(),
       z(1001),
@@ -572,8 +700,8 @@ export function startGame(mapData?: GameMapData) {
     const hpText = add([
       text(`${playerHP}/${PLAYER_MAX_HP}`, { size: 14 }),
       pos(
-        20 + HP_BAR_WIDTH / 2 + HP_BAR_PADDING,
-        20 + HP_BAR_PADDING + HP_BAR_HEIGHT / 2
+        HP_BAR_X + HP_BAR_WIDTH / 2 + HP_BAR_PADDING,
+        HP_BAR_Y + HP_BAR_PADDING + HP_BAR_HEIGHT / 2
       ),
       anchor("center"),
       color(255, 255, 255),
@@ -584,7 +712,10 @@ export function startGame(mapData?: GameMapData) {
     // Heart icon
     add([
       text("❤", { size: 20 }),
-      pos(HP_BAR_WIDTH + 50, 20 + HP_BAR_PADDING + HP_BAR_HEIGHT / 2),
+      pos(
+        HP_BAR_X + HP_BAR_WIDTH + 30,
+        HP_BAR_Y + HP_BAR_PADDING + HP_BAR_HEIGHT / 2
+      ),
       anchor("center"),
       color(255, 100, 100),
       fixed(),
@@ -609,10 +740,14 @@ export function startGame(mapData?: GameMapData) {
     updateHPBar();
 
     // Handle goblin attack hitting player
-    onCollide("goblin-attack", "player", () => {
+    // Damage is now dynamic based on difficulty (from attack hitbox)
+    onCollide("goblin-attack", "player", (attack, _player) => {
       if (playerInvincible) return;
 
-      playerHP -= 1;
+      // Get damage from the attack hitbox (set when goblin attacks)
+      const goblinDamage = attack.damage ?? GOBLIN_CONFIG.damage;
+      playerHP -= goblinDamage;
+      if (playerHP < 0) playerHP = 0;
       updateHPBar();
 
       if (playerHP <= 0) {
@@ -811,6 +946,11 @@ export function startGame(mapData?: GameMapData) {
 
       /* ---- RESET INPUT ---- */
       moveDir = vec2(0, 0);
+    });
+
+    // Cleanup khi scene kết thúc
+    onSceneLeave(() => {
+      stopEnemyMaintainer();
     });
   });
 

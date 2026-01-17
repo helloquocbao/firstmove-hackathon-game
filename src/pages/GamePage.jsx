@@ -54,22 +54,50 @@ export default function GamePage() {
   const [isClaimBusy, setIsClaimBusy] = useState(false);
   const [isClaimCheckBusy, setIsClaimCheckBusy] = useState(false);
 
+  // Play mode: 'v1' = free (2 plays/day), 'v2' = paid (3 plays/day, better rewards)
+  const [playMode, setPlayMode] = useState("v1");
+
   // UI visibility states for collapsible overlays
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
+  // Character stats
+  const [characterId, setCharacterId] = useState("");
+  const [characterName, setCharacterName] = useState("");
+  const [characterHealth, setCharacterHealth] = useState(0);
+  const [characterPower, setCharacterPower] = useState(0);
+  const [characterPotential, setCharacterPotential] = useState(0);
+  const [characterDailyPlays, setCharacterDailyPlays] = useState(0);
+  const [characterFreePlays, setCharacterFreePlays] = useState(0);
+
+  // Create character modal
+  const [showCreateCharacterModal, setShowCreateCharacterModal] =
+    useState(false);
+  const [newCharacterName, setNewCharacterName] = useState("");
+  const [isCreatingCharacter, setIsCreatingCharacter] = useState(false);
+  const [createCharacterError, setCreateCharacterError] = useState("");
+
+  // Restore session modal (for switching devices)
+  const [showRestoreModal, setShowRestoreModal] = useState(false);
+  const [restorePlayId, setRestorePlayId] = useState("");
+  const [restoreKeyHex, setRestoreKeyHex] = useState("");
+  const [restoreWorldId, setRestoreWorldId] = useState("");
+  const [unclaimedPlays, setUnclaimedPlays] = useState([]); // List of unclaimed plays from chain
+  const [isFetchingUnclaimed, setIsFetchingUnclaimed] = useState(false);
+
+  // Dynamic difficulty info from chain
+  const [difficultyInfo, setDifficultyInfo] = useState({
+    baseDifficulty: 1,
+    effectiveDifficulty: 1,
+    targetEnemyCount: 0,
+    currentEnemyCount: 0,
+    networkStatus: "⚪ Loading...",
+    validatorStatus: "⚪ Loading...",
+  });
+
   useEffect(() => {
     startGame();
-    handletests();
   }, []);
-
-  const handletests = async () => {
-    const txBlock = await suiClient.getTransactionBlock({
-      digest: "B7GqNSUhjSyS6qkSuMH6RgEC4GTetWuCiYMqErwX4kG8",
-      options: { showEvents: true },
-    });
-    console.log(txBlock);
-  };
 
   useEffect(() => {
     const stored = loadPlayState();
@@ -77,6 +105,16 @@ export default function GamePage() {
     if (stored) {
       setPlayId(stored.playId);
       setPlayKeyHex(stored.keyHex);
+      // Notify user about restored session
+      if (stored.playId === "pending") {
+        setPlayNotice(
+          `⏳ Transaction pending, waiting for chain to index. Click "Retry Fetch" to recover Play ID.`
+        );
+      } else {
+        setPlayNotice(
+          `🔄 Restored pending session (Play ID: ${stored.playId}). Find the key to claim reward!`
+        );
+      }
     }
     setIsKeyFound(Boolean(target?.found));
   }, []);
@@ -85,6 +123,25 @@ export default function GamePage() {
     const handler = () => setIsKeyFound(true);
     window.addEventListener("game:key-found", handler);
     return () => window.removeEventListener("game:key-found", handler);
+  }, []);
+
+  // Listen for difficulty updates from game
+  useEffect(() => {
+    const handler = (event) => {
+      const info = event.detail;
+      if (info) {
+        setDifficultyInfo({
+          baseDifficulty: info.baseDifficulty ?? 1,
+          effectiveDifficulty: info.effectiveDifficulty ?? 1,
+          targetEnemyCount: info.targetEnemyCount ?? 0,
+          currentEnemyCount: info.currentEnemyCount ?? 0,
+          networkStatus: info.networkStatus ?? "⚪ Unknown",
+          validatorStatus: info.validatorStatus ?? "⚪ Unknown",
+        });
+      }
+    };
+    window.addEventListener("game:difficulty-update", handler);
+    return () => window.removeEventListener("game:difficulty-update", handler);
   }, []);
 
   useEffect(() => {
@@ -140,7 +197,46 @@ export default function GamePage() {
 
   useEffect(() => {
     void loadRewardBalance();
+    void loadCharacter();
   }, [account?.address]);
+
+  async function loadCharacter() {
+    if (!account?.address || !PACKAGE_ID) {
+      setCharacterId("");
+      setCharacterName("");
+      setCharacterHealth(0);
+      setCharacterPower(0);
+      setCharacterPotential(0);
+      setCharacterDailyPlays(0);
+      setCharacterFreePlays(0);
+      return;
+    }
+    try {
+      const characterType = `${PACKAGE_ID}::world::CharacterNFT`;
+      const result = await suiClient.getOwnedObjects({
+        owner: account.address,
+        filter: { StructType: characterType },
+        options: { showContent: true },
+      });
+
+      if (result.data.length > 0) {
+        const obj = result.data[0];
+        const content = obj.data?.content;
+        if (content && content.dataType === "moveObject") {
+          const fields = normalizeMoveFields(content.fields);
+          setCharacterId(obj.data?.objectId ?? "");
+          setCharacterName(String(fields.name ?? ""));
+          setCharacterHealth(parseU32Value(fields.health) ?? 100);
+          setCharacterPower(parseU32Value(fields.power) ?? 0);
+          setCharacterPotential(parseU32Value(fields.potential) ?? 0);
+          setCharacterDailyPlays(parseU32Value(fields.daily_plays) ?? 0);
+          setCharacterFreePlays(parseU32Value(fields.free_daily_plays) ?? 0);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to load character:", error);
+    }
+  }
 
   const worldListOptions = useMemo(() => {
     const ids = new Set();
@@ -219,8 +315,8 @@ export default function GamePage() {
               typeof record.world_id === "string"
                 ? record.world_id
                 : typeof record.worldId === "string"
-                  ? record.worldId
-                  : "";
+                ? record.worldId
+                : "";
             if (id) ids.add(id);
           }
 
@@ -299,6 +395,141 @@ export default function GamePage() {
     }
   }
 
+  // Retry fetching playId from pending transaction
+  async function retryFetchPlayId() {
+    const stored = loadPlayState();
+    if (!stored || stored.playId !== "pending" || !stored.digest) {
+      return;
+    }
+
+    setPlayNotice("🔄 Retrying to fetch play ID from chain...");
+
+    try {
+      const txBlock = await suiClient.getTransactionBlock({
+        digest: stored.digest,
+        options: { showEvents: true },
+      });
+
+      const eventType = `${PACKAGE_ID}::world::PlayCreatedEvent`;
+      const playEvent = txBlock.events?.find((e) => e.type === eventType);
+      const parsed = playEvent?.parsedJson ?? {};
+      const nextPlayId =
+        typeof parsed.play_id === "string"
+          ? parsed.play_id
+          : typeof parsed.play_id === "number"
+          ? String(parsed.play_id)
+          : "";
+
+      if (nextPlayId) {
+        storePlayState({
+          ...stored,
+          playId: nextPlayId,
+        });
+        setPlayId(nextPlayId);
+        setPlayNotice(
+          `✅ Recovered Play ID: ${nextPlayId}. Find the key to claim!`
+        );
+      } else {
+        setPlayError("Still couldn't fetch play_id. Try again later.");
+      }
+    } catch (error) {
+      setPlayError(
+        "Failed to fetch: " +
+          (error instanceof Error ? error.message : String(error))
+      );
+    }
+  }
+
+  // Fetch unclaimed plays của user từ on-chain events
+  async function fetchUnclaimedPlays() {
+    if (!account?.address || !PACKAGE_ID) return;
+
+    setIsFetchingUnclaimed(true);
+    try {
+      // 1. Fetch tất cả PlayCreatedEvent của user
+      const playEventType = `${PACKAGE_ID}::world::PlayCreatedEvent`;
+      const claimEventType = `${PACKAGE_ID}::world::RewardClaimedEvent`;
+
+      // Fetch play events (created by user)
+      const playEvents = [];
+      let cursor = null;
+      let rounds = 0;
+      const maxRounds = 10;
+
+      while (rounds < maxRounds) {
+        const page = await suiClient.queryEvents({
+          query: { MoveEventType: playEventType },
+          cursor: cursor ?? undefined,
+          limit: 50,
+          order: "descending",
+        });
+
+        const events = page.data ?? [];
+        for (const event of events) {
+          const parsed = event.parsedJson ?? {};
+          if (parsed.creator === account.address) {
+            playEvents.push({
+              playId: String(parsed.play_id ?? ""),
+              worldId: parsed.world_id ?? "",
+              minReward: parsed.min_reward ?? 0,
+              maxReward: parsed.max_reward ?? 0,
+              timestamp: event.timestampMs,
+            });
+          }
+        }
+
+        if (!page.hasNextPage || !page.nextCursor) break;
+        cursor = page.nextCursor;
+        rounds++;
+      }
+
+      // 2. Fetch claimed play IDs
+      const claimedPlayIds = new Set();
+      cursor = null;
+      rounds = 0;
+
+      while (rounds < maxRounds) {
+        const page = await suiClient.queryEvents({
+          query: { MoveEventType: claimEventType },
+          cursor: cursor ?? undefined,
+          limit: 50,
+          order: "descending",
+        });
+
+        const events = page.data ?? [];
+        for (const event of events) {
+          const parsed = event.parsedJson ?? {};
+          if (parsed.recipient === account.address) {
+            claimedPlayIds.add(String(parsed.play_id ?? ""));
+          }
+        }
+
+        if (!page.hasNextPage || !page.nextCursor) break;
+        cursor = page.nextCursor;
+        rounds++;
+      }
+
+      // 3. Filter unclaimed plays
+      const unclaimed = playEvents.filter((p) => !claimedPlayIds.has(p.playId));
+      setUnclaimedPlays(unclaimed);
+
+      if (unclaimed.length === 0) {
+        setPlayNotice("✅ Không có play nào chưa claim!");
+      } else {
+        setPlayNotice(
+          `📋 Tìm thấy ${unclaimed.length} play chưa claim. Chọn để restore.`
+        );
+      }
+    } catch (error) {
+      setPlayError(
+        "Failed to fetch: " +
+          (error instanceof Error ? error.message : String(error))
+      );
+    } finally {
+      setIsFetchingUnclaimed(false);
+    }
+  }
+
   function storePlayTarget(target) {
     localStorage.setItem(PLAY_TARGET_KEY, JSON.stringify(target));
   }
@@ -319,6 +550,8 @@ export default function GamePage() {
     if (!raw) return;
     try {
       const parsed = JSON.parse(raw);
+      // Update characterHealth with current value
+      parsed.characterHealth = characterHealth || 100;
       startGame(parsed);
     } catch (error) {
       console.error(error);
@@ -396,7 +629,26 @@ export default function GamePage() {
         grid: newGrid,
         decoGrid: newDecoGrid,
         worldId: targetWorldId,
+        characterHealth: characterHealth || 100,
+        difficulty: 1, // default, will fetch from WorldMap
+        chunkCount: chunkEntries.length,
       };
+
+      // Fetch difficulty from WorldMap object
+      try {
+        const worldObj = await suiClient.getObject({
+          id: targetWorldId,
+          options: { showContent: true },
+        });
+        if (worldObj.data?.content?.dataType === "moveObject") {
+          const worldFields = normalizeMoveFields(worldObj.data.content.fields);
+          const difficulty = parseInt(worldFields.difficulty) || 1;
+          mapData.difficulty = Math.max(1, Math.min(9, difficulty));
+        }
+      } catch (e) {
+        console.warn("Could not fetch world difficulty:", e);
+      }
+
       localStorage.setItem("CUSTOM_MAP", JSON.stringify(mapData));
       startGame(mapData);
       setLoadedChunks(chunkEntries.length);
@@ -449,10 +701,32 @@ export default function GamePage() {
       return;
     }
 
-    const playableCoin = await getPlayableCoin();
-    if (!playableCoin) {
-      setPlayError("Need at least 5 CHUNK coin to play.");
+    // Check if character exists
+    if (!characterId) {
+      setShowCreateCharacterModal(true);
       return;
+    }
+
+    // Check play limits
+    if (playMode === "v1" && characterFreePlays >= 2) {
+      setPlayError(
+        "Free play limit reached (2/day). Use Play V2 or wait for next epoch."
+      );
+      return;
+    }
+    if (playMode === "v2" && characterDailyPlays >= 3) {
+      setPlayError("Daily play limit reached (3/day). Wait for next epoch.");
+      return;
+    }
+
+    // V2 requires coin, V1 is free
+    let playableCoin = null;
+    if (playMode === "v2") {
+      playableCoin = await getPlayableCoin();
+      if (!playableCoin) {
+        setPlayError("Need at least 5 CHUNK coin to play V2.");
+        return;
+      }
     }
 
     const keyBytes = new Uint8Array(16);
@@ -464,22 +738,75 @@ export default function GamePage() {
     setIsPlayBusy(true);
     try {
       const tx = new Transaction();
-      tx.moveCall({
-        target: `${PACKAGE_ID}::world::play`,
-        arguments: [
-          tx.object(activeWorldId),
-          tx.object(REWARD_VAULT_ID),
-          tx.object(playableCoin.coinObjectId),
-          tx.pure.vector("u8", sealVector),
-        ],
-      });
+
+      if (playMode === "v1") {
+        // Play V1: Free play (no coin required)
+        tx.moveCall({
+          target: `${PACKAGE_ID}::world::play_v1`,
+          arguments: [
+            tx.object(activeWorldId),
+            tx.object(REWARD_VAULT_ID),
+            tx.object(characterId),
+            tx.pure.vector("u8", sealVector),
+          ],
+        });
+      } else {
+        // Play V2: Paid play (requires 5 CHUNK)
+        tx.moveCall({
+          target: `${PACKAGE_ID}::world::play_v2`,
+          arguments: [
+            tx.object(activeWorldId),
+            tx.object(REWARD_VAULT_ID),
+            tx.object(characterId),
+            tx.object(playableCoin.coinObjectId),
+            tx.pure.vector("u8", sealVector),
+          ],
+        });
+      }
 
       const result = await signAndExecute({ transaction: tx });
       console.log("result", result);
-      const txBlock = await suiClient.getTransactionBlock({
-        digest: result.digest,
-        options: { showEvents: true },
-      });
+
+      // Retry logic: đợi transaction được index trên chain
+      let txBlock = null;
+      let retryCount = 0;
+      const maxRetries = 5;
+      const retryDelay = 1500; // 1.5 giây
+
+      while (retryCount < maxRetries) {
+        try {
+          await new Promise((resolve) => setTimeout(resolve, retryDelay));
+          txBlock = await suiClient.getTransactionBlock({
+            digest: result.digest,
+            options: { showEvents: true },
+          });
+          if (txBlock && txBlock.events) {
+            break; // Success
+          }
+        } catch (fetchError) {
+          console.warn(
+            `Retry ${retryCount + 1}/${maxRetries}: waiting for transaction...`,
+            fetchError
+          );
+        }
+        retryCount++;
+      }
+
+      if (!txBlock) {
+        // Fallback: Lưu với keyHex, user có thể verify sau
+        storePlayState({
+          playId: "pending",
+          keyHex,
+          worldId: activeWorldId,
+          found: false,
+          digest: result.digest,
+        });
+        setPlayKeyHex(keyHex);
+        setPlayError(
+          "Transaction submitted but couldn't fetch details. Please verify claim status later."
+        );
+        return;
+      }
       console.log("txBlock", txBlock);
       const eventType = `${PACKAGE_ID}::world::PlayCreatedEvent`;
       console.log("eventType", eventType);
@@ -492,8 +819,8 @@ export default function GamePage() {
         typeof parsed.play_id === "string"
           ? parsed.play_id
           : typeof parsed.play_id === "number"
-            ? String(parsed.play_id)
-            : "";
+          ? String(parsed.play_id)
+          : "";
       console.log("nextPlayId", nextPlayId);
       if (!nextPlayId) {
         setPlayError("Play created but play_id not found.");
@@ -556,7 +883,6 @@ export default function GamePage() {
     }
 
     const keyBytes = Array.from(hexToBytes(playKeyHex));
-
     setIsClaimBusy(true);
     try {
       const tx = new Transaction();
@@ -565,6 +891,7 @@ export default function GamePage() {
         arguments: [
           tx.object(activeWorldId),
           tx.object(REWARD_VAULT_ID),
+          tx.object(characterId),
           tx.object(RANDOM_OBJECT_ID),
           tx.pure.u64(BigInt(playId)),
           tx.pure.vector("u8", keyBytes),
@@ -585,8 +912,8 @@ export default function GamePage() {
         typeof parsed.reward === "string"
           ? parsed.reward
           : typeof parsed.reward === "number"
-            ? String(parsed.reward)
-            : "";
+          ? String(parsed.reward)
+          : "";
 
       resetPlayState(
         rewardValue ? `Claimed ${rewardValue} CHUNK.` : "Claimed reward."
@@ -639,6 +966,50 @@ export default function GamePage() {
     void loadWorldMap(selectedWorldId);
   }
 
+  async function handleCreateCharacter() {
+    setCreateCharacterError("");
+
+    if (!newCharacterName.trim()) {
+      setCreateCharacterError("Character name is required.");
+      return;
+    }
+    if (newCharacterName.trim().length > 32) {
+      setCreateCharacterError("Name must be 32 characters or less.");
+      return;
+    }
+    if (!WORLD_REGISTRY_ID) {
+      setCreateCharacterError("Missing world registry id.");
+      return;
+    }
+
+    setIsCreatingCharacter(true);
+    try {
+      const tx = new Transaction();
+      tx.moveCall({
+        target: `${PACKAGE_ID}::world::create_character`,
+        arguments: [
+          tx.object(WORLD_REGISTRY_ID),
+          tx.pure.string(newCharacterName.trim()),
+        ],
+      });
+
+      await signAndExecute({ transaction: tx });
+
+      // Reload character after creation
+      await loadCharacter();
+
+      setShowCreateCharacterModal(false);
+      setNewCharacterName("");
+      setPlayNotice("Character created! You can now start playing.");
+    } catch (error) {
+      setCreateCharacterError(
+        error instanceof Error ? error.message : String(error)
+      );
+    } finally {
+      setIsCreatingCharacter(false);
+    }
+  }
+
   return (
     <div className="game-page">
       <div className="game-bg">
@@ -657,7 +1028,9 @@ export default function GamePage() {
         {isHeaderCollapsed ? "☰" : "✕"}
       </button>
       <button
-        className={`game-toggle-btn game-toggle-sidebar ${!isSidebarCollapsed ? "sidebar-open" : ""}`}
+        className={`game-toggle-btn game-toggle-sidebar ${
+          !isSidebarCollapsed ? "sidebar-open" : ""
+        }`}
         onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
         title={isSidebarCollapsed ? "Show panel" : "Hide panel"}
       >
@@ -665,7 +1038,9 @@ export default function GamePage() {
       </button>
 
       <div className="game-shell">
-        <header className={`game-header ${isHeaderCollapsed ? "collapsed" : ""}`}>
+        <header
+          className={`game-header ${isHeaderCollapsed ? "collapsed" : ""}`}
+        >
           <div>
             <div className="game-eyebrow">Skyworld run</div>
             <h1 className="game-title">Chunk adventure</h1>
@@ -688,7 +1063,9 @@ export default function GamePage() {
             <canvas id="game" />
           </div>
 
-          <aside className={`game-info ${isSidebarCollapsed ? "collapsed" : ""}`}>
+          <aside
+            className={`game-info ${isSidebarCollapsed ? "collapsed" : ""}`}
+          >
             <div className="game-info__title flex justify-between items-center">
               <span className="font-bold">MISSION</span>
             </div>
@@ -737,7 +1114,107 @@ export default function GamePage() {
             </div>
             <ConnectButton />
 
+            {characterId && (
+              <>
+                <div className="game-info__title">Character</div>
+                <div className="game-info__card">
+                  <span>Name</span>
+                  <span>{characterName || "-"}</span>
+                </div>
+                <div className="game-info__card">
+                  <span>❤️ Health</span>
+                  <span>{characterHealth}</span>
+                </div>
+                <div className="game-info__card">
+                  <span>⚔️ Power</span>
+                  <span>{characterPower}</span>
+                </div>
+                <div className="game-info__card">
+                  <span>✨ Potential</span>
+                  <span>{characterPotential}</span>
+                </div>
+                <div className="game-info__card">
+                  <span>🎮 Daily Plays</span>
+                  <span>{characterDailyPlays}/3</span>
+                </div>
+                <div className="game-info__card">
+                  <span>🆓 Free Plays</span>
+                  <span>{characterFreePlays}/2</span>
+                </div>
+              </>
+            )}
+            {!characterId && account?.address && (
+              <div className="game-info__note">
+                No character found. Create one in Editor.
+              </div>
+            )}
+
             <div className="game-info__title">Rewards</div>
+
+            {/* Pending Session Warning */}
+            {playId && !isKeyFound && (
+              <div className="pending-session-warning">
+                <div className="pending-session-header">
+                  ⚠️ Pending Game Session
+                </div>
+                <div className="pending-session-info">
+                  <span>Play ID: {playId}</span>
+                  <span>
+                    World: {loadPlayState()?.worldId?.slice(0, 10) || "-"}...
+                  </span>
+                </div>
+
+                {/* Backup Key - User có thể copy để dùng máy khác */}
+                <div className="backup-key-section">
+                  <div className="backup-key-label">
+                    🔑 Backup Key (copy này để dùng máy khác):
+                  </div>
+                  <div className="backup-key-value">
+                    <code>{playKeyHex}</code>
+                    <button
+                      className="copy-btn"
+                      onClick={() => {
+                        navigator.clipboard.writeText(playKeyHex);
+                        setPlayNotice("✅ Key copied to clipboard!");
+                      }}
+                    >
+                      📋 Copy
+                    </button>
+                  </div>
+                </div>
+                <div className="pending-session-hint">
+                  {playId === "pending"
+                    ? "Transaction submitted but Play ID not yet indexed."
+                    : "Find the key in the game to claim your reward!"}
+                </div>
+                <div className="pending-session-buttons">
+                  {playId === "pending" && (
+                    <button
+                      className="game-btn game-btn--retry"
+                      onClick={retryFetchPlayId}
+                      disabled={isWalletBusy}
+                    >
+                      🔄 Retry Fetch
+                    </button>
+                  )}
+                  <button
+                    className="game-btn game-btn--cancel"
+                    onClick={() => {
+                      if (
+                        confirm(
+                          "Cancel this session? You will lose the play and cannot claim reward."
+                        )
+                      ) {
+                        resetPlayState("Session cancelled.");
+                      }
+                    }}
+                  >
+                    Cancel Session
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="game-info__card">
               <span>Play id</span>
               <span>{playId || "-"}</span>
@@ -746,12 +1223,47 @@ export default function GamePage() {
               <span>Key status</span>
               <span>{isKeyFound ? "found" : playId ? "hidden" : "-"}</span>
             </div>
+
+            {/* Restore Session Button - Khi đổi máy */}
+            {!playId && (
+              <button
+                className="game-btn game-btn--restore"
+                onClick={() => setShowRestoreModal(true)}
+              >
+                🔄 Restore Session (đổi máy)
+              </button>
+            )}
+
+            <div className="play-mode-selector">
+              <label>
+                <input
+                  type="radio"
+                  name="playMode"
+                  value="v1"
+                  checked={playMode === "v1"}
+                  onChange={(e) => setPlayMode(e.target.value)}
+                />
+                V1 - Free ({characterFreePlays}/2)
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="playMode"
+                  value="v2"
+                  checked={playMode === "v2"}
+                  onChange={(e) => setPlayMode(e.target.value)}
+                />
+                V2 - 5 CHUNK ({characterDailyPlays}/3)
+              </label>
+            </div>
             <button
               className="game-btn game-btn--primary"
               onClick={handlePlayOnChain}
               disabled={isWalletBusy || !account?.address}
             >
-              {isPlayBusy ? "Starting..." : "Start play (5 coin)"}
+              {isPlayBusy
+                ? "Starting..."
+                : `Start Play ${playMode.toUpperCase()}`}
             </button>
             <button
               className="game-btn"
@@ -783,12 +1295,211 @@ export default function GamePage() {
               <span>Attack</span>
               <span>Space</span>
             </div>
+
+            {/* Dynamic Difficulty Info */}
+            <div className="game-info__title">⛓️ Network Status</div>
+            <div className="game-info__card">
+              <span>Network</span>
+              <span>{difficultyInfo.networkStatus}</span>
+            </div>
+            <div className="game-info__card">
+              <span>Validators</span>
+              <span>{difficultyInfo.validatorStatus}</span>
+            </div>
+            <div className="game-info__card">
+              <span>Base Difficulty</span>
+              <span>{difficultyInfo.baseDifficulty}/9</span>
+            </div>
+            <div className="game-info__card">
+              <span>Effective</span>
+              <span>{difficultyInfo.effectiveDifficulty.toFixed(1)}/9</span>
+            </div>
+            <div className="game-info__card">
+              <span>Enemies</span>
+              <span>
+                {difficultyInfo.currentEnemyCount}/
+                {difficultyInfo.targetEnemyCount}
+              </span>
+            </div>
             <div className="game-info__note">
-              Select a world and load the map to start exploring.
+              Difficulty scales with Sui network activity.
             </div>
           </aside>
         </div>
       </div>
+
+      {/* Create Character Modal */}
+      {showCreateCharacterModal && (
+        <div className="game-modal-overlay">
+          <div className="game-modal">
+            <div className="game-modal__header">
+              <h2>Create Character</h2>
+              <button
+                className="game-modal__close"
+                onClick={() => setShowCreateCharacterModal(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="game-modal__body">
+              <p>You need a character to play. Create one now!</p>
+              <div className="game-field">
+                <label>Character Name</label>
+                <input
+                  type="text"
+                  value={newCharacterName}
+                  onChange={(e) => setNewCharacterName(e.target.value)}
+                  placeholder="Enter name (1-32 chars)"
+                  maxLength={32}
+                  disabled={isCreatingCharacter}
+                />
+              </div>
+              {createCharacterError && (
+                <div className="game-info__error">{createCharacterError}</div>
+              )}
+            </div>
+            <div className="game-modal__footer">
+              <button
+                className="game-btn"
+                onClick={() => setShowCreateCharacterModal(false)}
+                disabled={isCreatingCharacter}
+              >
+                Cancel
+              </button>
+              <button
+                className="game-btn game-btn--primary"
+                onClick={handleCreateCharacter}
+                disabled={isCreatingCharacter || !newCharacterName.trim()}
+              >
+                {isCreatingCharacter ? "Creating..." : "Create Character"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Restore Session Modal */}
+      {showRestoreModal && (
+        <div className="game-modal-overlay">
+          <div className="game-modal">
+            <div className="game-modal__header">
+              <span>🔄 Restore Session</span>
+              <button onClick={() => setShowRestoreModal(false)}>×</button>
+            </div>
+            <div className="game-modal__body">
+              {/* Fetch Unclaimed Plays */}
+              <div className="unclaimed-section">
+                <button
+                  className="game-btn game-btn--primary"
+                  onClick={fetchUnclaimedPlays}
+                  disabled={isFetchingUnclaimed}
+                  style={{ width: "100%", marginBottom: "12px" }}
+                >
+                  {isFetchingUnclaimed
+                    ? "🔍 Đang tìm..."
+                    : "🔍 Tìm Play chưa claim"}
+                </button>
+
+                {unclaimedPlays.length > 0 && (
+                  <div className="unclaimed-list">
+                    <div className="unclaimed-list-header">
+                      📋 Play chưa claim ({unclaimedPlays.length}):
+                    </div>
+                    {unclaimedPlays.map((play) => (
+                      <div
+                        key={play.playId}
+                        className={`unclaimed-item ${
+                          restorePlayId === play.playId ? "selected" : ""
+                        }`}
+                        onClick={() => {
+                          setRestorePlayId(play.playId);
+                          setRestoreWorldId(play.worldId);
+                        }}
+                      >
+                        <span>Play #{play.playId}</span>
+                        <span className="unclaimed-reward">
+                          💰 {play.minReward}-{play.maxReward}
+                        </span>
+                      </div>
+                    ))}
+                    <div className="unclaimed-note">
+                      ⚠️ Bạn vẫn cần nhập Key đã backup từ máy cũ!
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="restore-divider">hoặc nhập thủ công</div>
+
+              <div className="game-field">
+                <label>Play ID</label>
+                <input
+                  type="text"
+                  value={restorePlayId}
+                  onChange={(e) => setRestorePlayId(e.target.value)}
+                  placeholder="VD: 2"
+                />
+              </div>
+              <div className="game-field">
+                <label>Key (32 ký tự hex) ⚠️ Bắt buộc</label>
+                <input
+                  type="text"
+                  value={restoreKeyHex}
+                  onChange={(e) => setRestoreKeyHex(e.target.value)}
+                  placeholder="VD: a1b2c3d4e5f6..."
+                  maxLength={32}
+                />
+              </div>
+              <div className="game-field">
+                <label>World ID (optional)</label>
+                <input
+                  type="text"
+                  value={restoreWorldId}
+                  onChange={(e) => setRestoreWorldId(e.target.value)}
+                  placeholder="0x..."
+                />
+              </div>
+            </div>
+            <div className="game-modal__footer">
+              <button
+                className="game-btn"
+                onClick={() => setShowRestoreModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="game-btn game-btn--primary"
+                onClick={() => {
+                  if (!restorePlayId || !restoreKeyHex) {
+                    setPlayError("Play ID và Key là bắt buộc!");
+                    return;
+                  }
+                  if (restoreKeyHex.length !== 32) {
+                    setPlayError("Key phải có đúng 32 ký tự!");
+                    return;
+                  }
+                  storePlayState({
+                    playId: restorePlayId,
+                    keyHex: restoreKeyHex,
+                    worldId: restoreWorldId || selectedWorldId || worldId,
+                    found: false,
+                  });
+                  setPlayId(restorePlayId);
+                  setPlayKeyHex(restoreKeyHex);
+                  setIsKeyFound(false);
+                  setShowRestoreModal(false);
+                  setPlayNotice(
+                    `✅ Session restored! Play ID: ${restorePlayId}`
+                  );
+                }}
+                disabled={!restorePlayId || !restoreKeyHex}
+              >
+                Restore
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -911,12 +1622,12 @@ function matchesPlayId(parsedJson, targetPlayId) {
     typeof record.play_id === "string"
       ? record.play_id
       : typeof record.play_id === "number"
-        ? String(record.play_id)
-        : typeof record.playId === "string"
-          ? record.playId
-          : typeof record.playId === "number"
-            ? String(record.playId)
-            : "";
+      ? String(record.play_id)
+      : typeof record.playId === "string"
+      ? record.playId
+      : typeof record.playId === "number"
+      ? String(record.playId)
+      : "";
   return candidate === targetPlayId;
 }
 

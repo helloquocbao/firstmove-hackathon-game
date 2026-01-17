@@ -175,11 +175,34 @@ export default function EditorGame() {
       owner && (owner === userId || (walletAddress && owner === walletAddress)),
     );
 
-  const myChunkCount = useMemo(() => {
-    return Object.values(chunkOwners).filter((owner) =>
-      owner && (owner === userId || (walletAddress && owner === walletAddress))
-    ).length;
+  const myChunks = useMemo(() => {
+    return Object.entries(chunkOwners)
+      .filter(([key, owner]) =>
+        owner && (owner === userId || (walletAddress && owner === walletAddress))
+      )
+      .map(([key]) => key);
   }, [chunkOwners, userId, walletAddress]);
+
+  function flyToChunk(chunkKey: string) {
+    const [cx, cy] = chunkKey.split(",").map(Number);
+    const wrap = gridWrapRef.current;
+    if (!wrap) return;
+
+    const chunkSizePx = CHUNK_SIZE * TILE_SIZE;
+    const x = cx * chunkSizePx;
+    const y = cy * chunkSizePx;
+
+    const viewportWidth = wrap.clientWidth;
+    const viewportHeight = wrap.clientHeight;
+
+    wrap.scrollTo({
+      left: x - viewportWidth / 2 + chunkSizePx / 2,
+      top: y - viewportHeight / 2 + chunkSizePx / 2,
+      behavior: "smooth",
+    });
+
+    setHoveredChunkKey(chunkKey);
+  }
 
   useEffect(() => {
     chunkIdCacheRef.current = {};
@@ -1249,9 +1272,47 @@ export default function EditorGame() {
               </div>
 
               <div className="panel__rows text-nowrap overflow-hidden">
-                <div>
-                  <span>My chunks</span>
-                  <span className="panel__value text-white">{myChunkCount}</span>
+
+                <div className="flex flex-col gap-1">
+                  <div className="flex justify-between items-center">
+                    <span>My chunks</span>
+                    <span className="panel__value text-white">{myChunks.length}</span>
+                  </div>
+                  {myChunks.length > 0 && (
+                    <div className="grid grid-cols-3 gap-2 mt-2 max-h-[160px] overflow-y-auto pr-1 custom-scrollbar">
+                      {myChunks.map((key) => (
+                        <button
+                          key={key}
+                          onClick={() => flyToChunk(key)}
+                          className={`
+                            relative group flex flex-col items-center justify-center cursor-pointer
+                            bg-[#131b26] border border-[#2a3b55] rounded-lg p-2 
+                            hover:border-[#59b7ff] hover:bg-[#1a2636] transition-all
+                            ${activeChunkKey === key ? "border-[#59b7ff] bg-[#1a2636] ring-1 ring-[#59b7ff]" : ""}
+                          `}
+                          title={`Fly to chunk ${key}`}
+                        >
+                          <div className="w-6 h-6 mb-1 text-[#59b7ff] opacity-80 group-hover:opacity-100 flex items-center justify-center">
+                            <svg 
+                              viewBox="0 0 24 24" 
+                              fill="none" 
+                              stroke="currentColor" 
+                              strokeWidth="2" 
+                              strokeLinecap="round" 
+                              strokeLinejoin="round"
+                            >
+                              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                              <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+                              <line x1="12" y1="22.08" x2="12" y2="12" />
+                            </svg>
+                          </div>
+                          <span className="text-[10px] font-mono text-slate-400 group-hover:text-white">
+                            {key.replace(",", ", ")}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <span>Hover chunk</span>

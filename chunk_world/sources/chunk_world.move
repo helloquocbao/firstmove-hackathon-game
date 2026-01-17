@@ -25,6 +25,10 @@ module chunk_world::world {
     const PLAY_FEE: u64 = 5;
     const MIN_REWARD: u64 = 2;
     const MAX_REWARD: u64 = 15;
+    const MAX_CHUNKS: u64 = 20;
+    const CHUNK_PRICE_INCREMENT: u64 = 5; // mỗi chunk sau mắc hơn 5 coin
+    const DAILY_PLAY_LIMIT: u64 = 3;      // giới hạn 3 lần chơi mỗi epoch (~24h) cho play_v2
+    const FREE_DAILY_PLAY_LIMIT: u64 = 2; // giới hạn 2 lần chơi miễn phí mỗi epoch cho play_v1
 
     /* ================= ERRORS ================= */
 
@@ -44,6 +48,9 @@ module chunk_world::world {
     const E_CHARACTER_ALREADY_EXISTS: u64 = 13;
     const E_INSUFFICIENT_POWER: u64 = 15;
     const E_INVALID_NAME: u64 = 16;
+    const E_MAX_CHUNKS_REACHED: u64 = 17;
+    const E_DAILY_PLAY_LIMIT_REACHED: u64 = 18;
+    const E_FREE_DAILY_LIMIT_REACHED: u64 = 19;
 
     /* ================= ADMIN / REGISTRY ================= */
 
@@ -79,6 +86,7 @@ module chunk_world::world {
 
     public struct WorldMap has key, store {
         id: UID,
+        name: String,          // tên thế giới
         chunk_count: u64,
         next_play_id: u64,
         admin: address,
@@ -112,8 +120,13 @@ module chunk_world::world {
         id: UID,
         owner: address,
         name: String,
-        power: u64,      // sức mạnh tích lũy
-        potential: u64,  // tiềm năng tích lũy
+        health: u64,          // máu hiện tại
+        power: u64,           // sức mạnh tích lũy
+        potential: u64,       // tiềm năng tích lũy
+        last_play_epoch: u64,      // epoch cuối cùng chơi (v2)
+        daily_plays: u64,          // số lần chơi trong epoch hiện tại (v2)
+        last_free_play_epoch: u64, // epoch cuối cùng chơi miễn phí (v1)
+        free_daily_plays: u64,     // số lần chơi miễn phí trong epoch (v1)
     }
 
     /* ================= EVENTS ================= */
@@ -126,6 +139,7 @@ module chunk_world::world {
 
     public struct WorldCreatedEvent has copy, drop {
         world_id: ID,
+        name: String,
         admin: address,
     }
 
@@ -243,16 +257,22 @@ module chunk_world::world {
      entry fun create_world(
         registry: &mut WorldRegistry,
         _cap: &AdminCap,
+        name: String,
         difficulty: u8,
         required_power: u64,
         ctx: &mut TxContext
     ) {
         assert!(!option::is_some(&registry.world_id), E_WORLD_ALREADY_CREATED);
         assert!(difficulty >= 1 && difficulty <= 9, E_INVALID_DIFFICULTY);
+        
+        // Kiểm tra tên hợp lệ (1-64 bytes)
+        let name_len = string::length(&name);
+        assert!(name_len >= 1 && name_len <= 64, E_INVALID_NAME);
 
         let admin = tx_context::sender(ctx);
         let world = WorldMap {
             id: object::new(ctx),
+            name,
             chunk_count: 0,
             next_play_id: 0,
             admin,
@@ -266,14 +286,14 @@ module chunk_world::world {
 
         transfer::share_object(world);
 
-        event::emit(WorldCreatedEvent { world_id, admin });
+        event::emit(WorldCreatedEvent { world_id, name, admin });
     }
 
     /* ================= USER: CREATE CHARACTER ================= */
 
     /// Mỗi ví chỉ tạo được 1 character (soulbound NFT)
      entry fun create_character(
-        registry: &WorldRegistry,
+        registry: &mut WorldRegistry,
         name: String,
         ctx: &mut TxContext
     ) {
@@ -290,11 +310,19 @@ module chunk_world::world {
             id: object::new(ctx),
             owner: sender,
             name,
+            health: 100,
             power: 0,
             potential: 0,
+            last_play_epoch: 0,
+            daily_plays: 0,
+            last_free_play_epoch: 0,
+            free_daily_plays: 0,
         };
 
         let character_id = object::uid_to_inner(&character.id);
+
+        // Lưu character_id vào registry để track
+        df::add(&mut registry.id, CharacterKey { owner: sender }, character_id);
 
         event::emit(CharacterCreatedEvent { character_id, owner: sender, name: character.name });
 
@@ -302,20 +330,59 @@ module chunk_world::world {
         transfer::transfer(character, sender);
     }
 
+    /// Kiểm tra xem ví có character chưa
+    public fun has_character(registry: &WorldRegistry, owner: address): bool {
+        df::exists_(&registry.id, CharacterKey { owner })
+    }
+
+    /// Lấy character ID của một ví (nếu có)
+    public fun get_character_id(registry: &WorldRegistry, owner: address): Option<ID> {
+        if (df::exists_(&registry.id, CharacterKey { owner })) {
+            option::some(*df::borrow(&registry.id, CharacterKey { owner }))
+        } else {
+            option::none()
+        }
+    }
+
     /* ================= USER: CLAIM / MINT CHUNK NFT ================= */
 
     /// User claim chunk NFT. Coordinates are chosen randomly among adjacent slots.
     /// Rule:
-    /// - Chunk đầu tiên của world bắt buộc (0,0)
+    /// - Chunk đầu tiên của world bắt buộc (0,0) và miễn phí
     /// - Chunk sau phải kề 1 chunk đã tồn tại (4 hướng)
+    /// - Giá chunk = chunk_count * 5 (chunk 1 = 0, chunk 2 = 5, chunk 3 = 10, ...)
      entry fun claim_chunk(
         world: &mut WorldMap,
+        vault: &mut RewardVault,
         randomness: &random::Random,
         image_url: String,
         tiles: vector<u8>,
         decorations: vector<u8>,
+        mut payment: Coin<reward_coin::REWARD_COIN>,
         ctx: &mut TxContext
     ) {
+        assert!(world.chunk_count < MAX_CHUNKS, E_MAX_CHUNKS_REACHED);
+        
+        // Tính giá chunk: chunk đầu = 0, chunk sau mắc hơn 5 coin
+        let chunk_price = world.chunk_count * CHUNK_PRICE_INCREMENT;
+        let payment_value = coin::value(&payment);
+        assert!(payment_value >= chunk_price, E_INVALID_FEE);
+        
+        // Xử lý thanh toán
+        let sender = tx_context::sender(ctx);
+        if (chunk_price > 0) {
+            if (payment_value > chunk_price) {
+                let pay_coin = coin::split(&mut payment, chunk_price, ctx);
+                reward_coin::deposit(vault, pay_coin);
+                transfer::public_transfer(payment, sender);
+            } else {
+                reward_coin::deposit(vault, payment);
+            };
+        } else {
+            // Chunk đầu tiên miễn phí, trả lại coin
+            transfer::public_transfer(payment, sender);
+        };
+        
         assert!(string::length(&image_url) <= MAX_URL_BYTES, E_URL_TOO_LONG);
         assert!(vector::length(&tiles) == TILES_LEN, E_INVALID_TILES_LEN);
         assert!(vector::length(&decorations) == TILES_LEN, E_INVALID_TILES_LEN);
@@ -339,7 +406,6 @@ module chunk_world::world {
             assert!(has_adjacent(world, cx, cy), E_NO_ADJACENT_CHUNK);
         };
 
-        let sender = tx_context::sender(ctx);
         let world_id = object::uid_to_inner(&world.id);
 
         let chunk = ChunkNFT {
@@ -366,12 +432,56 @@ module chunk_world::world {
 
     /* ================= GAME: PLAY / REWARD ================= */
 
-    /// seal = hash::sha3_256(key_bytes) (compute off-chain)
-    /// Yêu cầu character có đủ power để tham gia world
-     entry fun play(
+    /// Play miễn phí - không cần trả coin
+    /// Giới hạn 2 lần chơi mỗi epoch (~24h)
+    /// Reward nhỏ hơn play_v2
+     entry fun play_v1(
         world: &mut WorldMap,
         vault: &mut RewardVault,
-        character: &CharacterNFT,
+        character: &mut CharacterNFT,
+        seal: vector<u8>,
+        ctx: & TxContext
+    ) {
+        assert!(vector::length(&seal) > 0, E_INVALID_SEAL);
+        
+        // Kiểm tra character có đủ power để chơi world này
+        assert!(character.power >= world.required_power, E_INSUFFICIENT_POWER);
+        
+        // Kiểm tra giới hạn chơi miễn phí hàng ngày (theo epoch)
+        let current_epoch = tx_context::epoch(ctx);
+        if (character.last_free_play_epoch != current_epoch) {
+            // Epoch mới, reset số lần chơi
+            character.last_free_play_epoch = current_epoch;
+            character.free_daily_plays = 0;
+        };
+        assert!(character.free_daily_plays < FREE_DAILY_PLAY_LIMIT, E_FREE_DAILY_LIMIT_REACHED);
+        
+        // Tăng số lần chơi miễn phí
+        character.free_daily_plays = character.free_daily_plays + 1;
+
+        // Reserve reward cho play miễn phí (dùng min reward)
+        reward_coin::reserve(vault, MIN_REWARD);
+
+        let play_id = world.next_play_id;
+        world.next_play_id = play_id + 1;
+        df::add(
+            &mut world.id,
+            PlayKey { id: play_id },
+            PlayTicket { seal, min_reward: MIN_REWARD, max_reward: MIN_REWARD } // reward cố định = MIN_REWARD
+        );
+
+        let world_id = object::uid_to_inner(&world.id);
+        let sender = tx_context::sender(ctx);
+        event::emit(PlayCreatedEvent { world_id, play_id, min_reward: MIN_REWARD, max_reward: MIN_REWARD, creator: sender });
+    }
+
+    /// seal = hash::sha3_256(key_bytes) (compute off-chain)
+    /// Yêu cầu character có đủ power để tham gia world
+    /// Giới hạn 3 lần chơi mỗi epoch (~24h)
+     entry fun play_v2(
+        world: &mut WorldMap,
+        vault: &mut RewardVault,
+        character: &mut CharacterNFT,
         mut fee_coin: Coin<reward_coin::REWARD_COIN>,
         seal: vector<u8>,
         ctx: &mut TxContext
@@ -381,6 +491,18 @@ module chunk_world::world {
         
         // Kiểm tra character có đủ power để chơi world này
         assert!(character.power >= world.required_power, E_INSUFFICIENT_POWER);
+        
+        // Kiểm tra giới hạn chơi hàng ngày (theo epoch)
+        let current_epoch = tx_context::epoch(ctx);
+        if (character.last_play_epoch != current_epoch) {
+            // Epoch mới, reset số lần chơi
+            character.last_play_epoch = current_epoch;
+            character.daily_plays = 0;
+        };
+        assert!(character.daily_plays < DAILY_PLAY_LIMIT, E_DAILY_PLAY_LIMIT_REACHED);
+        
+        // Tăng số lần chơi
+        character.daily_plays = character.daily_plays + 1;
 
         let fee_value = coin::value(&fee_coin);
         assert!(fee_value >= PLAY_FEE, E_INVALID_FEE);

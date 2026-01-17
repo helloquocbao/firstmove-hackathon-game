@@ -22,6 +22,7 @@ type GameMapData = {
   grid: number[][];
   decoGrid?: number[][];
   worldId?: string;
+  characterHealth?: number;
 };
 
 export function startGame(mapData?: GameMapData) {
@@ -34,16 +35,30 @@ export function startGame(mapData?: GameMapData) {
   }
   started = true;
 
-  kaboom({
+  // Get actual viewport size for fullscreen
+  const canvas = document.getElementById("game") as HTMLCanvasElement;
+  const initialWidth = window.innerWidth;
+  const initialHeight = window.innerHeight;
+
+  const k = kaboom({
     global: true,
-    canvas: document.getElementById("game") as HTMLCanvasElement,
-    width: 960,
-    height: 540,
-    background: [203, 232, 255],
+    canvas,
+    width: initialWidth,
+    height: initialHeight,
+    background: [26, 42, 58],
     scale: 1,
+    crisp: true,
   });
-  debug.inspect = true;
-  debug.showArea = true;
+
+  // Handle window resize to keep game fullscreen
+  window.addEventListener("resize", () => {
+    // Kaboom doesn't have a native resize, but we can update canvas
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  });
+
+  // debug.inspect = true;
+
   /* ================= SPRITES ================= */
 
   loadSprite("player-idle", "/sprites/player/Idle.png", {
@@ -64,6 +79,22 @@ export function startGame(mapData?: GameMapData) {
     sliceX: 4,
     anims: {
       attack: { from: 0, to: 3, speed: 12 },
+    },
+  });
+
+  // Goblin sprite sheet: 5 rows, row 1 has 7 columns, rows 2-5 have 6 columns
+  // Using sliceX=7 to accommodate max columns
+  // Row 0: Idle (7 frames), Row 1: Run (6 frames), Row 2: Attack Right (6 frames),
+  // Row 3: Attack Down (6 frames), Row 4: Attack Up (6 frames)
+  loadSprite("goblin", "/sprites/goblin/Goblin.png", {
+    sliceX: 7,
+    sliceY: 5,
+    anims: {
+      idle: { from: 0, to: 6, speed: 8, loop: true }, // Row 0: frames 0-6 (7 frames)
+      run: { from: 7, to: 12, speed: 10, loop: true }, // Row 1: frames 7-12 (6 frames, skip 13)
+      "attack-right": { from: 14, to: 19, speed: 12 }, // Row 2: frames 14-19 (6 frames, skip 20)
+      "attack-down": { from: 21, to: 26, speed: 12 }, // Row 3: frames 21-26 (6 frames, skip 27)
+      "attack-up": { from: 28, to: 33, speed: 12 }, // Row 4: frames 28-33 (6 frames, skip 34)
     },
   });
 
@@ -90,13 +121,23 @@ export function startGame(mapData?: GameMapData) {
   }
 
   function findSpawn(grid: number[][], size: number) {
+    // Collect all walkable tiles
+    const walkableTiles: { x: number; y: number }[] = [];
     for (let y = 0; y < grid.length; y++) {
       for (let x = 0; x < grid[y].length; x++) {
         if (isWalkableTile(grid[y][x])) {
-          return vec2(x * size + size / 2, y * size + size / 2);
+          walkableTiles.push({ x, y });
         }
       }
     }
+
+    // Pick random walkable tile
+    if (walkableTiles.length > 0) {
+      const spawn =
+        walkableTiles[Math.floor(Math.random() * walkableTiles.length)];
+      return vec2(spawn.x * size + size / 2, spawn.y * size + size / 2);
+    }
+
     return vec2(64, 64);
   }
 
@@ -161,7 +202,329 @@ export function startGame(mapData?: GameMapData) {
     const spawnPos = findSpawn(resolvedMap.grid, tileSize);
     drawTiles(resolvedMap.grid, resolvedMap.decoGrid, tileSize);
 
+    /* ================= GOBLIN SYSTEM ================= */
+
+    const GOBLIN_CONFIG = {
+      speed: 80,
+      chaseRange: 150,
+      attackRange: 40,
+      attackCooldown: 1.5,
+      patrolRange: 100,
+      health: 3,
+    };
+
+    type GoblinState = "idle" | "patrol" | "chase" | "attack";
+
+    function findGoblinSpawns(grid: number[][], count: number) {
+      const spawns: { x: number; y: number }[] = [];
+      const candidates: { x: number; y: number }[] = [];
+
+      for (let y = 0; y < grid.length; y++) {
+        for (let x = 0; x < (grid[y]?.length ?? 0); x++) {
+          if (isWalkableTile(grid[y][x])) {
+            candidates.push({ x, y });
+          }
+        }
+      }
+
+      // Randomly pick spawn points
+      for (let i = 0; i < count && candidates.length > 0; i++) {
+        const idx = Math.floor(Math.random() * candidates.length);
+        spawns.push(candidates[idx]);
+        candidates.splice(idx, 1);
+      }
+
+      return spawns;
+    }
+
+    function spawnGoblin(spawnX: number, spawnY: number) {
+      const goblin = add([
+        sprite("goblin", { anim: "idle" }),
+        pos(spawnX * tileSize + tileSize / 2, spawnY * tileSize + tileSize / 2),
+        area({ shape: new Rect(vec2(0), 40, 40) }),
+        anchor("center"),
+        scale(0.3),
+        {
+          state: "idle" as GoblinState,
+          facing: 1,
+          health: GOBLIN_CONFIG.health,
+          maxHealth: GOBLIN_CONFIG.health,
+          attackTimer: 0,
+          patrolTarget: null as { x: number; y: number } | null,
+          patrolOrigin: { x: spawnX, y: spawnY },
+          stateTimer: 0,
+        },
+        "goblin",
+        "enemy",
+      ]);
+
+      // HP Bar for goblin
+      const HP_BAR_W = 32;
+      const HP_BAR_H = 4;
+      const HP_OFFSET_Y = -25;
+
+      const hpBarBg = add([
+        rect(HP_BAR_W, HP_BAR_H),
+        pos(goblin.pos.x, goblin.pos.y + HP_OFFSET_Y),
+        anchor("center"),
+        color(40, 40, 40),
+        outline(1, rgb(20, 20, 20)),
+        z(100),
+      ]);
+
+      const hpBarFill = add([
+        rect(HP_BAR_W, HP_BAR_H),
+        pos(
+          goblin.pos.x - HP_BAR_W / 2,
+          goblin.pos.y + HP_OFFSET_Y - HP_BAR_H / 2
+        ),
+        color(220, 60, 60),
+        z(101),
+      ]);
+
+      // Update HP bar position and width each frame
+      goblin.onUpdate(() => {
+        if (!goblin.exists()) {
+          hpBarBg.destroy();
+          hpBarFill.destroy();
+          return;
+        }
+        hpBarBg.pos.x = goblin.pos.x;
+        hpBarBg.pos.y = goblin.pos.y + HP_OFFSET_Y;
+        hpBarFill.pos.x = goblin.pos.x - HP_BAR_W / 2;
+        hpBarFill.pos.y = goblin.pos.y + HP_OFFSET_Y - HP_BAR_H / 2;
+
+        const ratio = goblin.health / goblin.maxHealth;
+        hpBarFill.width = HP_BAR_W * ratio;
+
+        // Change color based on HP
+        if (ratio > 0.6) {
+          hpBarFill.color = rgb(80, 200, 80);
+        } else if (ratio > 0.3) {
+          hpBarFill.color = rgb(220, 180, 60);
+        } else {
+          hpBarFill.color = rgb(220, 60, 60);
+        }
+      });
+
+      goblin.onDestroy(() => {
+        hpBarBg.destroy();
+        hpBarFill.destroy();
+      });
+
+      return goblin;
+    }
+
+    function updateGoblin(
+      goblin: ReturnType<typeof spawnGoblin>,
+      playerPos: Vec2
+    ) {
+      const dist = goblin.pos.dist(playerPos);
+      const dt_val = dt();
+      goblin.attackTimer = Math.max(0, goblin.attackTimer - dt_val);
+      goblin.stateTimer += dt_val;
+
+      // State transitions
+      if (dist <= GOBLIN_CONFIG.attackRange && goblin.attackTimer <= 0) {
+        goblin.state = "attack";
+      } else if (dist <= GOBLIN_CONFIG.chaseRange) {
+        if (goblin.state !== "attack") goblin.state = "chase";
+      } else {
+        if (goblin.state === "chase") goblin.state = "patrol";
+        if (goblin.state === "idle" && goblin.stateTimer > 2) {
+          goblin.state = "patrol";
+          goblin.stateTimer = 0;
+        }
+      }
+
+      // State behaviors
+      switch (goblin.state) {
+        case "idle":
+          if (goblin.curAnim() !== "idle") {
+            goblin.play("idle");
+          }
+          break;
+
+        case "patrol": {
+          if (
+            !goblin.patrolTarget ||
+            goblin.pos.dist(
+              vec2(
+                goblin.patrolTarget.x * tileSize + tileSize / 2,
+                goblin.patrolTarget.y * tileSize + tileSize / 2
+              )
+            ) < 10
+          ) {
+            // Pick new patrol target
+            const ox = goblin.patrolOrigin.x;
+            const oy = goblin.patrolOrigin.y;
+            const range = Math.floor(GOBLIN_CONFIG.patrolRange / tileSize);
+            const nx = ox + Math.floor(Math.random() * range * 2) - range;
+            const ny = oy + Math.floor(Math.random() * range * 2) - range;
+            if (
+              nx >= 0 &&
+              ny >= 0 &&
+              ny < resolvedMap.grid.length &&
+              nx < (resolvedMap.grid[ny]?.length ?? 0) &&
+              isWalkableTile(resolvedMap.grid[ny]?.[nx] ?? 0)
+            ) {
+              goblin.patrolTarget = { x: nx, y: ny };
+            } else {
+              goblin.state = "idle";
+              goblin.stateTimer = 0;
+              break;
+            }
+          }
+
+          const patrolPos = vec2(
+            goblin.patrolTarget.x * tileSize + tileSize / 2,
+            goblin.patrolTarget.y * tileSize + tileSize / 2
+          );
+          const patrolDir = patrolPos.sub(goblin.pos).unit();
+          const nextPatrolPos = goblin.pos.add(
+            patrolDir.scale(GOBLIN_CONFIG.speed * 0.5 * dt_val)
+          );
+
+          // Check if next position is walkable before moving
+          const patrolTileX = Math.floor(nextPatrolPos.x / tileSize);
+          const patrolTileY = Math.floor(nextPatrolPos.y / tileSize);
+          if (
+            patrolTileY >= 0 &&
+            patrolTileY < resolvedMap.grid.length &&
+            patrolTileX >= 0 &&
+            patrolTileX < (resolvedMap.grid[patrolTileY]?.length ?? 0) &&
+            isWalkableTile(resolvedMap.grid[patrolTileY]?.[patrolTileX] ?? 0)
+          ) {
+            goblin.pos = nextPatrolPos;
+          } else {
+            // Can't move there, pick new target
+            goblin.patrolTarget = null;
+            goblin.state = "idle";
+            goblin.stateTimer = 0;
+          }
+
+          goblin.facing = patrolDir.x >= 0 ? 1 : -1;
+          goblin.flipX = goblin.facing === -1;
+
+          if (goblin.curAnim() !== "run") {
+            goblin.play("run");
+          }
+          break;
+        }
+
+        case "chase": {
+          const chaseDir = playerPos.sub(goblin.pos).unit();
+          const nextPos = goblin.pos.add(
+            chaseDir.scale(GOBLIN_CONFIG.speed * dt_val)
+          );
+
+          // Check if next position is walkable
+          const tileX = Math.floor(nextPos.x / tileSize);
+          const tileY = Math.floor(nextPos.y / tileSize);
+          if (
+            tileY >= 0 &&
+            tileY < resolvedMap.grid.length &&
+            tileX >= 0 &&
+            tileX < (resolvedMap.grid[tileY]?.length ?? 0) &&
+            isWalkableTile(resolvedMap.grid[tileY]?.[tileX] ?? 0)
+          ) {
+            goblin.pos = nextPos;
+          }
+
+          goblin.facing = chaseDir.x >= 0 ? 1 : -1;
+          goblin.flipX = goblin.facing === -1;
+
+          if (goblin.curAnim() !== "run") {
+            goblin.play("run");
+          }
+          break;
+        }
+
+        case "attack": {
+          if (goblin.attackTimer <= 0) {
+            // Determine attack direction
+            const dir = playerPos.sub(goblin.pos);
+            let attackAnim = "attack-right";
+            if (Math.abs(dir.y) > Math.abs(dir.x)) {
+              attackAnim = dir.y > 0 ? "attack-down" : "attack-up";
+            }
+            goblin.facing = dir.x >= 0 ? 1 : -1;
+            goblin.flipX = goblin.facing === -1;
+
+            goblin.play(attackAnim);
+            goblin.attackTimer = GOBLIN_CONFIG.attackCooldown;
+
+            // Spawn attack hitbox - starts from goblin center and extends forward
+            wait(0.2, () => {
+              if (!goblin.exists()) return;
+              const hitbox = add([
+                pos(goblin.pos.x + goblin.facing * 10, goblin.pos.y),
+                area({ shape: new Rect(vec2(0), 28, 24) }),
+                anchor("center"),
+                lifespan(0.12),
+                "goblin-attack",
+              ]);
+            });
+          }
+
+          // Return to chase after attack animation
+          if (goblin.attackTimer < GOBLIN_CONFIG.attackCooldown - 0.5) {
+            goblin.state = "chase";
+          }
+          break;
+        }
+      }
+    }
+
+    // Spawn goblins on map
+    const goblinCount = Math.max(
+      1,
+      Math.floor(
+        (resolvedMap.grid.length * (resolvedMap.grid[0]?.length ?? 0)) / 50
+      )
+    );
+    const goblinSpawns = findGoblinSpawns(resolvedMap.grid, goblinCount);
+    const goblins = goblinSpawns.map((spawn) => spawnGoblin(spawn.x, spawn.y));
+
+    // Update all goblins
+    onUpdate(() => {
+      goblins.forEach((goblin) => {
+        if (goblin.exists()) {
+          // Check if goblin is on dangerous tile (abyss/void) - destroy it
+          const gTileId = getTileIdAt(goblin.pos);
+          if (
+            gTileId === null ||
+            !isTileDefined(gTileId) ||
+            !isWalkableTile(gTileId)
+          ) {
+            goblin.destroy();
+            return;
+          }
+          updateGoblin(goblin, player.pos);
+        }
+      });
+    });
+
+    // Handle player attack hitting goblins
+    onCollide("attack", "goblin", (attack, goblin) => {
+      goblin.health -= 1;
+      if (goblin.health <= 0) {
+        goblin.destroy();
+      } else {
+        // Knockback
+        const knockDir = goblin.pos.sub(player.pos).unit();
+        goblin.pos = goblin.pos.add(knockDir.scale(20));
+      }
+    });
+
+    // Handle goblin attack hitting player - moved after player creation
+    // See below after player is created
+
     /* ================= PLAYER ================= */
+
+    const PLAYER_MAX_HP = resolvedMap?.characterHealth ?? 100;
+    let playerHP = PLAYER_MAX_HP;
+    let playerInvincible = false;
 
     const player = add([
       sprite("player-idle", { anim: "idle" }),
@@ -174,8 +537,113 @@ export function startGame(mapData?: GameMapData) {
         attacking: false,
       },
       scale(0.3),
+      opacity(1),
       "player",
     ]);
+
+    /* ================= HEALTH BAR UI ================= */
+
+    const HP_BAR_WIDTH = 180;
+    const HP_BAR_HEIGHT = 16;
+    const HP_BAR_PADDING = 3;
+    const HP_BAR_X = 20;
+    const HP_BAR_Y = height() - 50; // Bottom of screen
+
+    // HP Bar background
+    const hpBarBg = add([
+      rect(
+        HP_BAR_WIDTH + HP_BAR_PADDING * 2,
+        HP_BAR_HEIGHT + HP_BAR_PADDING * 2
+      ),
+      pos(HP_BAR_X, HP_BAR_Y),
+      color(30, 30, 40),
+      outline(2, rgb(60, 60, 80)),
+      fixed(),
+      z(1000),
+    ]);
+
+    // HP Bar fill
+    const hpBarFill = add([
+      rect(HP_BAR_WIDTH, HP_BAR_HEIGHT),
+      pos(HP_BAR_X + HP_BAR_PADDING, HP_BAR_Y + HP_BAR_PADDING),
+      color(220, 60, 60),
+      fixed(),
+      z(1001),
+    ]);
+
+    // HP text
+    const hpText = add([
+      text(`${playerHP}/${PLAYER_MAX_HP}`, { size: 14 }),
+      pos(
+        HP_BAR_X + HP_BAR_WIDTH / 2 + HP_BAR_PADDING,
+        HP_BAR_Y + HP_BAR_PADDING + HP_BAR_HEIGHT / 2
+      ),
+      anchor("center"),
+      color(255, 255, 255),
+      fixed(),
+      z(1002),
+    ]);
+
+    // Heart icon
+    add([
+      text("❤", { size: 20 }),
+      pos(
+        HP_BAR_X + HP_BAR_WIDTH + 30,
+        HP_BAR_Y + HP_BAR_PADDING + HP_BAR_HEIGHT / 2
+      ),
+      anchor("center"),
+      color(255, 100, 100),
+      fixed(),
+      z(1002),
+    ]);
+
+    function updateHPBar() {
+      const ratio = playerHP / PLAYER_MAX_HP;
+      hpBarFill.width = HP_BAR_WIDTH * ratio;
+      hpText.text = `${playerHP}/${PLAYER_MAX_HP}`;
+
+      // Change color based on HP
+      if (ratio > 0.6) {
+        hpBarFill.color = rgb(80, 200, 80); // Green
+      } else if (ratio > 0.3) {
+        hpBarFill.color = rgb(220, 180, 60); // Yellow
+      } else {
+        hpBarFill.color = rgb(220, 60, 60); // Red
+      }
+    }
+
+    updateHPBar();
+
+    // Handle goblin attack hitting player
+    const GOBLIN_DAMAGE = 20;
+    onCollide("goblin-attack", "player", () => {
+      if (playerInvincible) return;
+
+      playerHP -= GOBLIN_DAMAGE;
+      if (playerHP < 0) playerHP = 0;
+      updateHPBar();
+
+      if (playerHP <= 0) {
+        // Player dies
+        go("game", { mapData: resolvedMap });
+        return;
+      }
+
+      // Invincibility frames
+      playerInvincible = true;
+
+      // Flash effect
+      let flashCount = 0;
+      const flashInterval = loop(0.1, () => {
+        player.opacity = player.opacity === 1 ? 0.3 : 1;
+        flashCount++;
+        if (flashCount >= 10) {
+          flashInterval.cancel();
+          player.opacity = 1;
+          playerInvincible = false;
+        }
+      });
+    });
 
     const playTarget = loadPlayTarget();
     const playState = loadPlayState();
@@ -214,7 +682,7 @@ export function startGame(mapData?: GameMapData) {
 
     onUpdate(() => {
       camPos(player.pos);
-      camScale(1.3); // Zoom camera 2x để nhìn rõ hơn
+      camScale(2); // Zoom camera 2x để nhìn rõ hơn
     });
 
     /* ================= INPUT STATE ================= */
@@ -252,19 +720,43 @@ export function startGame(mapData?: GameMapData) {
       return typeof value === "number" ? value : null;
     }
 
+    // Player collision half-size (for bounding box checks)
+    const PLAYER_HALF_WIDTH = 10;
+    const PLAYER_HALF_HEIGHT = 12;
+
     function canMove(pos: Vec2) {
+      // Check all 4 corners + center with padding to prevent edge jittering
+      const checkPoints = [
+        pos, // center
+        vec2(pos.x - PLAYER_HALF_WIDTH, pos.y - PLAYER_HALF_HEIGHT), // top-left
+        vec2(pos.x + PLAYER_HALF_WIDTH, pos.y - PLAYER_HALF_HEIGHT), // top-right
+        vec2(pos.x - PLAYER_HALF_WIDTH, pos.y + PLAYER_HALF_HEIGHT), // bottom-left
+        vec2(pos.x + PLAYER_HALF_WIDTH, pos.y + PLAYER_HALF_HEIGHT), // bottom-right
+      ];
+
+      for (const point of checkPoints) {
+        const tileId = getTileIdAt(point);
+        if (tileId === null) return false; // Out of bounds - block movement
+        if (!isTileDefined(tileId)) return false; // Undefined tile - block movement
+        if (!isWalkableTile(tileId)) return false; // Not walkable - block movement
+      }
+      return true;
+    }
+
+    // Check if position is on a deadly tile (abyss/void/out of bounds)
+    function isPositionDangerous(pos: Vec2) {
       const tileId = getTileIdAt(pos);
-      if (tileId === null) return true;
-      if (!isTileDefined(tileId)) return true;
-      return isWalkableTile(tileId);
+      if (tileId === null) return true; // Out of bounds
+      if (!isTileDefined(tileId)) return true; // Undefined
+      return !isWalkableTile(tileId); // Abyss or barrier
     }
 
     /* ================= ATTACK ================= */
 
     function spawnAttackHitbox() {
       add([
-        pos(player.pos.x + player.facing * 20, player.pos.y),
-        area({ shape: new Rect(vec2(1), 10, 20) }),
+        pos(player.pos.x + player.facing * 12, player.pos.y),
+        area({ shape: new Rect(vec2(1), 28, 26) }),
         anchor("center"),
         lifespan(0.1),
         "attack",
@@ -291,6 +783,13 @@ export function startGame(mapData?: GameMapData) {
     /* ================= UPDATE LOOP ================= */
 
     player.onUpdate(() => {
+      /* ---- CHECK DEATH ON ABYSS/VOID ---- */
+      // If player is standing on dangerous tile (abyss, void, out of bounds) -> die
+      if (isPositionDangerous(player.pos)) {
+        handleFallDeath();
+        return;
+      }
+
       /* ---- MOVE ---- */
       if (!player.attacking && moveDir.len() > 0) {
         const next = player.pos.add(moveDir.unit().scale(player.speed * dt()));
@@ -298,12 +797,6 @@ export function startGame(mapData?: GameMapData) {
       }
 
       /* ---- FLIP (1 nơi duy nhất) ---- */
-      const currentTile = getTileIdAt(player.pos);
-      if (currentTile === null || !isTileDefined(currentTile)) {
-        handleFallDeath();
-        return;
-      }
-
       player.flipX = player.facing === -1;
 
       /* ---- ANIMATION FSM ---- */

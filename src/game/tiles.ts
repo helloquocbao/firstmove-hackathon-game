@@ -64,10 +64,11 @@ function getDecoKind(name: string): DecoKind {
   // grass_, flower_ = walkable (đi qua được)
   if (name.startsWith("grass_")) return "walkable";
   if (name.startsWith("flower_")) return "walkable";
-  // tree_, rock_, bush_ = blocking (chặn di chuyển)
+  // tree_, rock_, bush_, house_ = blocking (chặn di chuyển)
   if (name.startsWith("tree_")) return "blocking";
   if (name.startsWith("rock_")) return "blocking";
   if (name.startsWith("bush_")) return "blocking";
+  if (name.startsWith("house_")) return "blocking";
   // Mặc định: walkable
   return "walkable";
 }

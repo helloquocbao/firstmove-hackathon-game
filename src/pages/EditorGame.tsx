@@ -25,9 +25,11 @@ import {
   normalizeDecoId,
   PaintLayer,
 } from "../game/tiles";
-import { useWalrusImageUpload } from "../hooks";
+
 import { WalletHeader } from "../components";
 import "./EditorGame.css";
+import { useWalrusUpload } from "../hooks/useWalrusUpload";
+import { getWalrusImageUrl } from "../lib/helper";
 
 /**
  * TILE CODE
@@ -49,6 +51,8 @@ export default function EditorGame() {
   const account = useCurrentAccount();
   const { mutateAsync: signAndExecute, isPending } =
     useSignAndExecuteTransaction();
+
+  const { uploadImage, isUploading } = useWalrusUpload();
 
   const [userId] = useState(() => getOrCreateUserId());
   const [notice, setNotice] = useState<string>("");
@@ -111,12 +115,6 @@ export default function EditorGame() {
   const gridWrapRef = useRef<HTMLDivElement | null>(null);
   const chunkGridRef = useRef<HTMLDivElement | null>(null);
 
-  // Walrus image upload
-  const {
-    uploadCanvas,
-    isUploading: isUploadingImage,
-    uploadError: walrusUploadError,
-  } = useWalrusImageUpload();
   const clickTileRef = useRef<{ x: number; y: number } | null>(null);
   const dragRef = useRef({
     active: false,
@@ -177,8 +175,10 @@ export default function EditorGame() {
 
   const myChunks = useMemo(() => {
     return Object.entries(chunkOwners)
-      .filter(([key, owner]) =>
-        owner && (owner === userId || (walletAddress && owner === walletAddress))
+      .filter(
+        ([key, owner]) =>
+          owner &&
+          (owner === userId || (walletAddress && owner === walletAddress)),
       )
       .map(([key]) => key);
   }, [chunkOwners, userId, walletAddress]);
@@ -385,13 +385,12 @@ export default function EditorGame() {
       setNotice("Uploading to Walrus...");
 
       // Upload canvas to Walrus
-      const fileName = `chunk_${activeChunkCoords.cx}_${activeChunkCoords.cy}_${Date.now()}.png`;
-      const result = await uploadCanvas(canvas, fileName);
+      const patchId = await uploadImage(canvas);
 
       console.log("=== Walrus Upload Result ===");
-      console.log("Blob ID:", result.blobId);
-      console.log("Image URL:", result.url);
-      console.log("Full result:", result);
+      console.log("Patch ID:", patchId);
+      console.log("Image URL:", getWalrusImageUrl(patchId));
+      console.log("Full result:", patchId);
 
       // Get the chunk object ID to update image URL on-chain
       const chunkObjectId = await fetchChunkObjectId(
@@ -401,7 +400,7 @@ export default function EditorGame() {
 
       if (!chunkObjectId) {
         setNotice(
-          `Image uploaded to Walrus but chunk not found on-chain. URL: ${result.url}`,
+          `Image uploaded to Walrus but chunk not found on-chain. URL: ${getWalrusImageUrl(patchId)}`,
         );
         return;
       }
@@ -413,11 +412,16 @@ export default function EditorGame() {
         (tx) => {
           tx.moveCall({
             target: `${PACKAGE_ID}::world::set_image_url`,
-            arguments: [tx.object(chunkObjectId), tx.pure.string(result.url)],
+            arguments: [
+              tx.object(chunkObjectId),
+              tx.pure.string(getWalrusImageUrl(patchId)),
+            ],
           });
         },
         () => {
-          setNotice(`Chunk image updated on-chain! URL: ${result.url}`);
+          setNotice(
+            `Chunk image updated on-chain! URL: ${getWalrusImageUrl(patchId)}`,
+          );
         },
       );
     } catch (error) {
@@ -1244,11 +1248,12 @@ export default function EditorGame() {
               </div>
 
               <div className="panel__rows text-nowrap overflow-hidden">
-
                 <div className="flex flex-col gap-1">
                   <div className="flex justify-between items-center">
                     <span>My chunks</span>
-                    <span className="panel__value text-white">{myChunks.length}</span>
+                    <span className="panel__value text-white">
+                      {myChunks.length}
+                    </span>
                   </div>
                   {myChunks.length > 0 && (
                     <div className="grid grid-cols-3 gap-2 mt-2 max-h-[160px] overflow-y-auto pr-1 custom-scrollbar">
@@ -1265,12 +1270,12 @@ export default function EditorGame() {
                           title={`Fly to chunk ${key}`}
                         >
                           <div className="w-6 h-6 mb-1 text-[#59b7ff] opacity-80 group-hover:opacity-100 flex items-center justify-center">
-                            <svg 
-                              viewBox="0 0 24 24" 
-                              fill="none" 
-                              stroke="currentColor" 
-                              strokeWidth="2" 
-                              strokeLinecap="round" 
+                            <svg
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
                               strokeLinejoin="round"
                             >
                               <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
@@ -1795,7 +1800,9 @@ export default function EditorGame() {
                   <div className="flex gap-2" style={{ marginBottom: "12px" }}>
                     <button
                       className={`btn ${
-                        paintLayer === "base" ? "btn-active-chunk" : "btn--outline"
+                        paintLayer === "base"
+                          ? "btn-active-chunk"
+                          : "btn--outline"
                       }`}
                       onClick={() => setPaintLayer("base")}
                     >
@@ -1803,7 +1810,9 @@ export default function EditorGame() {
                     </button>
                     <button
                       className={`btn ${
-                        paintLayer === "decor" ? "btn-active-chunk" : "btn--outline"
+                        paintLayer === "decor"
+                          ? "btn-active-chunk"
+                          : "btn--outline"
                       }`}
                       onClick={() => setPaintLayer("decor")}
                     >
@@ -1865,17 +1874,15 @@ export default function EditorGame() {
                 <button
                   className="btn btn--dark"
                   onClick={captureAndUploadChunkImage}
-                  disabled={isUploadingImage || !isConnected}
+                  disabled={isUploading || !isConnected}
                 >
-                  {isUploadingImage ? "Uploading..." : "Update Image"}
+                  {isUploading ? "Uploading..." : "Update Image"}
                 </button>
                 <button className="btn btn--outline" onClick={closeChunkModal}>
                   Cancel
                 </button>
               </div>
-              {walrusUploadError && (
-                <div className="panel__error">{walrusUploadError}</div>
-              )}
+              {isUploading && <div className="panel__error">{isUploading}</div>}
             </div>
           </div>
         )}

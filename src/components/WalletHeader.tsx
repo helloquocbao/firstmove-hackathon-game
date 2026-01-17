@@ -2,7 +2,8 @@ import { ConnectButton, useCurrentAccount } from "@mysten/dapp-kit";
 import { useRewardBalance } from "../hooks/useRewardBalance";
 import "./WalletHeader.css";
 
-const CHUNK_COIN_ICON = "https://ik.imagekit.io/huubao/chunk_coin.png?updatedAt=1768641987539";
+const CHUNK_COIN_ICON =
+  "https://ik.imagekit.io/huubao/chunk_coin.png?updatedAt=1768641987539";
 
 /**
  * Shared component for displaying reward balance and connect wallet button
@@ -24,7 +25,9 @@ export function WalletHeader() {
           {isLoading ? (
             <span className="wallet-header__skeleton" />
           ) : (
-            <span className="wallet-header__value">{balance.toLocaleString()}</span>
+            <span className="wallet-header__value">
+              {balance.toLocaleString()}
+            </span>
           )}
           <span className="wallet-header__label">CHUNK</span>
         </div>

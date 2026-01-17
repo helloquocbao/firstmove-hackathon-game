@@ -50,6 +50,14 @@ export default function GamePage() {
   const [isPlayBusy, setIsPlayBusy] = useState(false);
   const [isClaimBusy, setIsClaimBusy] = useState(false);
   const [isClaimCheckBusy, setIsClaimCheckBusy] = useState(false);
+  const [isGameStarted, setIsGameStarted] = useState(false);
+  const [pendingMapData, setPendingMapData] = useState(null);
+
+  // Pre-start modal (local/off-chain entry)
+  const [showStartModal, setShowStartModal] = useState(true);
+  const [startMode, setStartMode] = useState("player");
+  const [startModalError, setStartModalError] = useState("");
+  const [startChainMode, setStartChainMode] = useState("v1");
 
   // Play mode: 'v1' = free (2 plays/day), 'v2' = paid (3 plays/day, better rewards)
   const [playMode, setPlayMode] = useState("v1");
@@ -91,10 +99,6 @@ export default function GamePage() {
     networkStatus: "⚪ Loading...",
     validatorStatus: "⚪ Loading...",
   });
-
-  useEffect(() => {
-    startGame();
-  }, []);
 
   useEffect(() => {
     const stored = loadPlayState();
@@ -200,7 +204,7 @@ export default function GamePage() {
       setCharacterPotential(0);
       setCharacterDailyPlays(0);
       setCharacterFreePlays(0);
-      return;
+      return "";
     }
     try {
       const characterType = `${PACKAGE_ID}::world::CharacterNFT`;
@@ -215,18 +219,21 @@ export default function GamePage() {
         const content = obj.data?.content;
         if (content && content.dataType === "moveObject") {
           const fields = normalizeMoveFields(content.fields);
-          setCharacterId(obj.data?.objectId ?? "");
+          const nextId = obj.data?.objectId ?? "";
+          setCharacterId(nextId);
           setCharacterName(String(fields.name ?? ""));
           setCharacterHealth(parseU32Value(fields.health) ?? 100);
           setCharacterPower(parseU32Value(fields.power) ?? 0);
           setCharacterPotential(parseU32Value(fields.potential) ?? 0);
           setCharacterDailyPlays(parseU32Value(fields.daily_plays) ?? 0);
           setCharacterFreePlays(parseU32Value(fields.free_daily_plays) ?? 0);
+          return nextId;
         }
       }
     } catch (error) {
       console.error("Failed to load character:", error);
     }
+    return "";
   }
 
   const isWalletBusy = isPending || isPlayBusy || isClaimBusy;
@@ -543,17 +550,24 @@ export default function GamePage() {
     }
   }
 
-  function reloadGameFromStorage() {
+  function getStoredMapData() {
     const raw = localStorage.getItem("CUSTOM_MAP");
-    if (!raw) return;
+    if (!raw) return null;
     try {
       const parsed = JSON.parse(raw);
       // Update characterHealth with current value
       parsed.characterHealth = characterHealth || 100;
-      startGame(parsed);
+      return parsed;
     } catch (error) {
       console.error(error);
+      return null;
     }
+  }
+
+  function reloadGameFromStorage() {
+    const parsed = getStoredMapData();
+    if (!parsed) return;
+    startGame(parsed);
   }
 
   async function loadWorldMap(targetWorldId) {
@@ -653,7 +667,10 @@ export default function GamePage() {
       }
 
       localStorage.setItem("CUSTOM_MAP", JSON.stringify(mapData));
-      startGame(mapData);
+      setPendingMapData(mapData);
+      if (isGameStarted) {
+        startGame(mapData);
+      }
       setLoadedChunks(chunkEntries.length);
     } catch (error) {
       setMapLoadError(error instanceof Error ? error.message : String(error));
@@ -685,10 +702,15 @@ export default function GamePage() {
     }
   }
 
-  async function handlePlayOnChain() {
+  async function handlePlayOnChain(nextMode) {
     setPlayError("");
     setPlayNotice("");
     setClaimError("");
+    const resolvedMode = typeof nextMode === "string" ? nextMode : null;
+    if (resolvedMode) {
+      setPlayMode(resolvedMode);
+    }
+    const effectiveMode = resolvedMode ?? playMode;
 
     if (!account?.address) {
       setPlayError("Connect wallet first.");
@@ -710,20 +732,20 @@ export default function GamePage() {
     }
 
     // Check play limits
-    if (playMode === "v1" && characterFreePlays >= 2) {
+    if (effectiveMode === "v1" && characterFreePlays >= 2) {
       setPlayError(
         "Free play limit reached (2/day). Use Play V2 or wait for next epoch."
       );
       return;
     }
-    if (playMode === "v2" && characterDailyPlays >= 3) {
+    if (effectiveMode === "v2" && characterDailyPlays >= 3) {
       setPlayError("Daily play limit reached (3/day). Wait for next epoch.");
       return;
     }
 
     // V2 requires coin, V1 is free
     let playableCoin = null;
-    if (playMode === "v2") {
+    if (effectiveMode === "v2") {
       playableCoin = await getPlayableCoin();
       if (!playableCoin) {
         setPlayError("Need at least 5 CHUNK coin to play V2.");
@@ -741,7 +763,7 @@ export default function GamePage() {
     try {
       const tx = new Transaction();
 
-      if (playMode === "v1") {
+      if (effectiveMode === "v1") {
         // Play V1: Free play (no coin required)
         tx.moveCall({
           target: `${PACKAGE_ID}::world::play_v1`,
@@ -843,6 +865,7 @@ export default function GamePage() {
       setPlayId(nextPlayId);
       setPlayKeyHex(keyHex);
       setIsKeyFound(false);
+      setIsGameStarted(true);
       reloadGameFromStorage();
       setPlayNotice(
         target
@@ -855,6 +878,46 @@ export default function GamePage() {
     } finally {
       setIsPlayBusy(false);
     }
+  }
+
+  async function handleStartModalAction() {
+    setStartModalError("");
+    if (startMode === "player") {
+      if (isMapLoading) {
+        setStartModalError("World is still loading.");
+        return;
+      }
+      const nextMapData = pendingMapData ?? getStoredMapData();
+      if (!nextMapData) {
+        setStartModalError("World not ready yet.");
+        return;
+      }
+      setIsGameStarted(true);
+      setShowStartModal(false);
+      startGame(nextMapData);
+      return;
+    }
+
+    if (!account?.address) {
+      setStartModalError("Connect wallet to play on-chain.");
+      return;
+    }
+    const resolvedCharacterId = characterId || (await loadCharacter());
+    if (!resolvedCharacterId) {
+      setStartModalError("Create a character first.");
+      setShowCreateCharacterModal(true);
+      return;
+    }
+    if (startChainMode === "v1" && characterFreePlays >= 2) {
+      setStartModalError("Free play limit reached (2/day).");
+      return;
+    }
+    if (startChainMode === "v2" && characterDailyPlays >= 3) {
+      setStartModalError("Daily play limit reached (3/day).");
+      return;
+    }
+    setShowStartModal(false);
+    void handlePlayOnChain(startChainMode);
   }
 
   async function handleClaimOnChain() {
@@ -1002,6 +1065,9 @@ export default function GamePage() {
       setIsCreatingCharacter(false);
     }
   }
+
+  const mapReady =
+    !isMapLoading && Boolean(pendingMapData ?? getStoredMapData());
 
   return (
     <div className="game-page">
@@ -1234,7 +1300,7 @@ export default function GamePage() {
             </div>
             <button
               className="game-btn game-btn--primary"
-              onClick={handlePlayOnChain}
+              onClick={() => handlePlayOnChain()}
               disabled={isWalletBusy || !account?.address}
             >
               {isPlayBusy
@@ -1471,6 +1537,138 @@ export default function GamePage() {
                 disabled={!restorePlayId || !restoreKeyHex}
               >
                 Restore
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pre-start Modal */}
+      {showStartModal && (
+        <div className="game-modal-overlay game-modal-overlay--start">
+          <div className="game-modal">
+            <div className="game-modal__header">
+              <h2>Start Run</h2>
+              <button
+                className="game-modal__close"
+                onClick={() => setShowStartModal(false)}
+              >
+                X
+              </button>
+            </div>
+            <div className="game-modal__body">
+              <p>Choose your entry mode before the game begins.</p>
+              {!mapReady && (
+                <div className="game-start-loading">
+                  <div className="game-loading-spinner" />
+                  <div className="game-loading-text">Loading world...</div>
+                </div>
+              )}
+              <div className="game-start-options">
+                <label
+                  className={`game-start-option ${
+                    startMode === "player" ? "active" : ""
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="startMode"
+                    value="player"
+                    checked={startMode === "player"}
+                    onChange={(e) => setStartMode(e.target.value)}
+                    disabled={!mapReady}
+                  />
+                  <div>
+                    <div className="game-start-option__title">Player</div>
+                    <div className="game-start-option__note">
+                      Off-chain practice run.
+                    </div>
+                  </div>
+                </label>
+                <label
+                  className={`game-start-option ${
+                    startMode === "chain" ? "active" : ""
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="startMode"
+                    value="chain"
+                    checked={startMode === "chain"}
+                    onChange={(e) => setStartMode(e.target.value)}
+                    disabled={!mapReady}
+                  />
+                  <div>
+                    <div className="game-start-option__title">On-chain</div>
+                    <div className="game-start-option__note">
+                      Choose V1 or V2 to start.
+                    </div>
+                  </div>
+                </label>
+                {startMode === "chain" && (
+                  <div className="game-start-chain">
+                    <label
+                      className={`game-start-option ${
+                        startChainMode === "v1" ? "active" : ""
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="startChainMode"
+                        value="v1"
+                        checked={startChainMode === "v1"}
+                        onChange={(e) => setStartChainMode(e.target.value)}
+                        disabled={!mapReady}
+                      />
+                      <div>
+                        <div className="game-start-option__title">V1</div>
+                        <div className="game-start-option__note">
+                          Free play ({characterFreePlays}/2).
+                        </div>
+                      </div>
+                    </label>
+                    <label
+                      className={`game-start-option ${
+                        startChainMode === "v2" ? "active" : ""
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="startChainMode"
+                        value="v2"
+                        checked={startChainMode === "v2"}
+                        onChange={(e) => setStartChainMode(e.target.value)}
+                        disabled={!mapReady}
+                      />
+                      <div>
+                        <div className="game-start-option__title">V2</div>
+                        <div className="game-start-option__note">
+                          Paid play ({characterDailyPlays}/3).
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+                )}
+              </div>
+              {startModalError && (
+                <div className="game-info__error">{startModalError}</div>
+              )}
+            </div>
+            <div className="game-modal__footer">
+              <button
+                className="game-btn"
+                onClick={() => setShowStartModal(false)}
+              >
+                Close
+              </button>
+              <button
+                className="game-btn game-btn--primary"
+                onClick={handleStartModalAction}
+                disabled={
+                  !mapReady || (startMode === "chain" && isWalletBusy)
+                }
+              >
+                {startMode === "player" ? "Player" : "Play On-chain"}
               </button>
             </div>
           </div>

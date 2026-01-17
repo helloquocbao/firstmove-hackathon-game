@@ -142,20 +142,9 @@ export class EnemyMaintainer {
         this.config.baseDifficulty * networkFactor * validatorFactor,
       );
 
-      // Tính target enemy count dựa trên effective difficulty
-      const baseStats = this.getBaseStats();
-      const adjustedEnemiesPerChunk =
-        baseStats.enemiesPerChunk * (0.7 + (effectiveDifficulty / 9) * 0.6); // 0.7 - 1.3
+      // Fixed target count
+      this.targetEnemyCount = this.config.chunkCount * 2;
 
-      this.targetEnemyCount = Math.ceil(
-        this.config.chunkCount * adjustedEnemiesPerChunk,
-      );
-
-      // Giới hạn tối đa
-      const maxEnemies = this.config.chunkCount * 3;
-      this.targetEnemyCount = Math.min(this.targetEnemyCount, maxEnemies);
-
-      // Đảm bảo ít nhất 1 quái
       this.targetEnemyCount = Math.max(1, this.targetEnemyCount);
 
       // Update difficulty info

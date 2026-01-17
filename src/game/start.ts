@@ -922,8 +922,15 @@ export function startGame(mapData?: GameMapData) {
       chunkCount,
       onSpawnEnemy: spawnGoblinFromMaintainer,
       onDifficultyUpdate: (info: DifficultyInfo) => {
+        const aliveGoblins = goblins.filter((goblin) => goblin.exists());
+        const aliveYods = yods.filter((yod) => yod.exists());
         window.dispatchEvent(
-          new CustomEvent("game:difficulty-update", { detail: info }),
+          new CustomEvent("game:difficulty-update", {
+            detail: {
+              ...info,
+              currentEnemyCount: aliveGoblins.length + aliveYods.length,
+            },
+          }),
         );
         if (info.baseDifficulty > 0) {
           difficultyScale = info.effectiveDifficulty / info.baseDifficulty;

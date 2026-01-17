@@ -81,9 +81,37 @@ export default function EditorGame() {
   const [hoveredChunkId, setHoveredChunkId] = useState("");
   const [isHoverIdLoading, setIsHoverIdLoading] = useState(false);
   const [isClaimHelpOpen, setIsClaimHelpOpen] = useState(false);
+  const [rewardBalance, setRewardBalance] = useState(0);
+
+  // Fetch reward balance
+  useEffect(() => {
+    async function fetchBalance() {
+      if (!account?.address || !REWARD_COIN_TYPE) {
+        setRewardBalance(0);
+        return;
+      }
+      try {
+        const coins = await suiClient.getCoins({
+          owner: account.address,
+          coinType: REWARD_COIN_TYPE,
+        });
+        const total = coins.data.reduce(
+          (sum, coin) => sum + BigInt(coin.balance),
+          BigInt(0),
+        );
+        // DECIMALS = 0 in reward_coin.move, so no division needed
+        setRewardBalance(Number(total));
+      } catch (err) {
+        console.error("Failed to fetch reward balance:", err);
+        setRewardBalance(0);
+      }
+    }
+    fetchBalance();
+  }, [account?.address]);
 
   // Compute current chunk price for UI display
-  const claimChunkPrice = (loadedChunks ?? 0) < 20 ? (loadedChunks ?? 0) * 5 : 95;
+  const claimChunkPrice =
+    (loadedChunks ?? 0) < 20 ? (loadedChunks ?? 0) * 5 : 95;
 
   // World creation params
   const [worldName, setWorldName] = useState<string>("");
@@ -166,7 +194,9 @@ export default function EditorGame() {
   const isConnected = Boolean(account?.address);
   const isBusy = isPending || Boolean(busyAction);
   const walletAddress = account?.address ?? "";
-  const isAdmin = Boolean(walletAddress && adminCapOwner && walletAddress === adminCapOwner);
+  const isAdmin = Boolean(
+    walletAddress && adminCapOwner && walletAddress === adminCapOwner,
+  );
   const isOwnerMatch = (owner?: string) =>
     Boolean(
       owner && (owner === userId || (walletAddress && owner === walletAddress)),
@@ -552,7 +582,8 @@ export default function EditorGame() {
       // Then query WorldCreatedEvent for more worlds
       if (PACKAGE_ID) {
         const eventType = `${PACKAGE_ID}::world::WorldCreatedEvent`;
-        let cursor: { txDigest: string; eventSeq: string } | null | undefined = null;
+        let cursor: { txDigest: string; eventSeq: string } | null | undefined =
+          null;
         let hasNextPage = true;
         let rounds = 0;
 
@@ -1224,7 +1255,24 @@ export default function EditorGame() {
             <Link to="/marketplace">Marketplace</Link>
           </nav>
 
-          <ConnectButton />
+          <div className="header-right">
+            {account && (
+              <div className="reward-balance">
+                <span className="reward-balance__icon">
+                  <img
+                    alt="icon"
+                    className="w-4 h-4"
+                    src="https://ik.imagekit.io/huubao/chunk_coin.png?updatedAt=1768641987539"
+                  />
+                </span>
+                <span className="reward-balance__value">
+                  {rewardBalance.toLocaleString()}
+                </span>
+                <span className="reward-balance__label">CHUNK</span>
+              </div>
+            )}
+            <ConnectButton />
+          </div>
         </header>
 
         <div className="editor-layout">
@@ -1355,7 +1403,9 @@ export default function EditorGame() {
               {isMapLoading && (
                 <div className="editor-loading-overlay">
                   <div className="editor-loading-spinner" />
-                  <div className="editor-loading-text">Loading world map...</div>
+                  <div className="editor-loading-text">
+                    Loading world map...
+                  </div>
                 </div>
               )}
 
@@ -1472,7 +1522,9 @@ export default function EditorGame() {
                 <div className="panel__rows">
                   <div>
                     <span>World ID</span>
-                    <span className="panel__value--wrap">{shortAddress(worldId) || "not loaded"}</span>
+                    <span className="panel__value--wrap">
+                      {shortAddress(worldId) || "not loaded"}
+                    </span>
                   </div>
                   <div>
                     <span>Chunks</span>
@@ -1584,7 +1636,9 @@ export default function EditorGame() {
                   onClick={createWorldOnChain}
                   disabled={isBusy || !isConnected}
                 >
-                  {busyAction === "Create world" ? "Creating..." : "Create world"}
+                  {busyAction === "Create world"
+                    ? "Creating..."
+                    : "Create world"}
                 </button>
               </div>
             )}
@@ -1739,10 +1793,7 @@ export default function EditorGame() {
 
                 <div className="editor-modal__tiles">
                   <div className="panel__title">Paint Layer</div>
-                  <div
-                    className="flex gap-2"
-                    style={{ marginBottom: "12px" }}
-                  >
+                  <div className="flex gap-2" style={{ marginBottom: "12px" }}>
                     <button
                       className={`btn ${
                         paintLayer === "base" ? "btn--primary" : "btn--outline"

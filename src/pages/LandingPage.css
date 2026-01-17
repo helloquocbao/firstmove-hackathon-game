@@ -176,6 +176,41 @@
   backdrop-filter: blur(10px); */
 }
 
+.landing__nav .header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.landing__nav .reward-balance {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(89, 183, 255, 0.1);
+  border: 1px solid rgba(89, 183, 255, 0.3);
+  border-radius: 10px;
+  font-family: var(--font-mono);
+}
+
+.landing__nav .reward-balance__icon {
+  font-size: 18px;
+}
+
+.landing__nav .reward-balance__value {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--land-accent);
+}
+
+.landing__nav .reward-balance__label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--land-muted);
+}
+
 .landing .brand {
   display: flex;
   align-items: center;

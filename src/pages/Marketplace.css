@@ -96,6 +96,41 @@
   padding: 20px 0;
 }
 
+.marketplace-nav .header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.marketplace-nav .reward-balance {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(89, 183, 255, 0.1);
+  border: 1px solid rgba(89, 183, 255, 0.3);
+  border-radius: 10px;
+  font-family: var(--font-mono, monospace);
+}
+
+.marketplace-nav .reward-balance__icon {
+  font-size: 18px;
+}
+
+.marketplace-nav .reward-balance__value {
+  font-size: 14px;
+  font-weight: 700;
+  color: #59b7ff;
+}
+
+.marketplace-nav .reward-balance__label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(232, 244, 255, 0.6);
+}
+
 .marketplace-nav .brand {
   display: flex;
   align-items: center;

@@ -52,8 +52,34 @@ export default function Marketplace() {
   const [status, setStatus] = useState("");
   const [listingStatus, setListingStatus] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [rewardBalance, setRewardBalance] = useState(0);
 
   const chunkType = PACKAGE_ID ? `${PACKAGE_ID}::world::ChunkNFT` : "";
+
+  useEffect(() => {
+    async function fetchBalance() {
+      if (!account?.address || !REWARD_COIN_TYPE) {
+        setRewardBalance(0);
+        return;
+      }
+      try {
+        const coins = await suiClient.getCoins({
+          owner: account.address,
+          coinType: REWARD_COIN_TYPE,
+        });
+        const total = coins.data.reduce(
+          (sum, coin) => sum + BigInt(coin.balance),
+          BigInt(0),
+        );
+        // DECIMALS = 0 in reward_coin.move, so no division needed
+        setRewardBalance(Number(total));
+      } catch (err) {
+        console.error("Failed to fetch reward balance:", err);
+        setRewardBalance(0);
+      }
+    }
+    fetchBalance();
+  }, [account?.address]);
 
   useEffect(() => {
     void refreshListings();
@@ -62,7 +88,7 @@ export default function Marketplace() {
 
   const listedChunkIds = useMemo(
     () => new Set(listings.map((item) => item.chunkId)),
-    [listings]
+    [listings],
   );
   const hasListings = listings.length > 0;
 
@@ -232,10 +258,10 @@ export default function Marketplace() {
 
       await signAndExecute({ transaction: tx });
       setStatus("✅ Purchase successful! Refreshing listings...");
-      
+
       // Wait a bit for the transaction to be indexed
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
       await refreshListings();
       await loadOwnedChunks();
       setStatus("✅ Purchase complete! Chunk added to your collection.");
@@ -276,10 +302,10 @@ export default function Marketplace() {
 
       await signAndExecute({ transaction: tx });
       setListingStatus("✅ Chunk listed successfully!");
-      
+
       // Wait for transaction to be indexed
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
       await refreshListings();
       await loadOwnedChunks();
     } catch (error) {
@@ -299,18 +325,15 @@ export default function Marketplace() {
       const tx = new Transaction();
       tx.moveCall({
         target: `${PACKAGE_ID}::world::cancel_listing`,
-        arguments: [
-          tx.object(listing.worldId),
-          tx.object(listing.chunkId),
-        ],
+        arguments: [tx.object(listing.worldId), tx.object(listing.chunkId)],
       });
 
       await signAndExecute({ transaction: tx });
       setStatus("✅ Chunk delisted successfully! Refreshing...");
-      
+
       // Wait for transaction to be indexed
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
       await refreshListings();
       await loadOwnedChunks();
       setStatus("✅ Chunk returned to your collection.");
@@ -355,7 +378,24 @@ export default function Marketplace() {
             <Link to="/game">Play</Link>
           </nav>
 
-          <ConnectButton />
+          <div className="header-right">
+            {account && (
+              <div className="reward-balance">
+                <span className="reward-balance__icon">
+                  <img
+                    alt="icon"
+                    className="w-4 h-4"
+                    src="https://ik.imagekit.io/huubao/chunk_coin.png?updatedAt=1768641987539"
+                  />
+                </span>
+                <span className="reward-balance__value">
+                  {rewardBalance.toLocaleString()}
+                </span>
+                <span className="reward-balance__label">CHUNK</span>
+              </div>
+            )}
+            <ConnectButton />
+          </div>
         </header>
 
         {/* Hero Section */}
@@ -367,11 +407,13 @@ export default function Marketplace() {
             </div>
 
             <h1>
-              Trade <span className="marketplace-hero__accent">Chunk Lands</span> on Sui
+              Trade{" "}
+              <span className="marketplace-hero__accent">Chunk Lands</span> on
+              Sui
             </h1>
 
             <p className="marketplace-hero__subtitle">
-              Every chunk is a unique NFT on Sui blockchain. List your lands, 
+              Every chunk is a unique NFT on Sui blockchain. List your lands,
               discover new territories, and earn CHUNK tokens as payment.
             </p>
 
@@ -420,9 +462,13 @@ export default function Marketplace() {
               <div className="marketplace-wallet-info">
                 <div className="marketplace-wallet-info__icon">👛</div>
                 <div className="marketplace-wallet-info__details">
-                  <div className="marketplace-wallet-info__label">Connected Wallet</div>
+                  <div className="marketplace-wallet-info__label">
+                    Connected Wallet
+                  </div>
                   <div className="marketplace-wallet-info__address">
-                    {account?.address ? truncateAddress(account.address, 10, 8) : "Not connected"}
+                    {account?.address
+                      ? truncateAddress(account.address, 10, 8)
+                      : "Not connected"}
                   </div>
                 </div>
               </div>
@@ -432,14 +478,23 @@ export default function Marketplace() {
 
         {/* Your Chunks Modal */}
         {isModalOpen && (
-          <div className="marketplace-modal-overlay" onClick={() => setIsModalOpen(false)}>
-            <div className="marketplace-modal" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="marketplace-modal-overlay"
+            onClick={() => setIsModalOpen(false)}
+          >
+            <div
+              className="marketplace-modal"
+              onClick={(e) => e.stopPropagation()}
+            >
               <div className="marketplace-modal__header">
                 <h2 className="marketplace-modal__title">
                   <span className="marketplace-section__title-icon">🏔️</span>
                   Your Chunks
                 </h2>
-                <button className="marketplace-modal__close" onClick={() => setIsModalOpen(false)}>
+                <button
+                  className="marketplace-modal__close"
+                  onClick={() => setIsModalOpen(false)}
+                >
                   ✕
                 </button>
               </div>
@@ -453,12 +508,20 @@ export default function Marketplace() {
                   ownedChunks.length > 0 ? (
                     <div className="marketplace-grid marketplace-grid--modal">
                       {ownedChunks.map((chunk) => (
-                        <article key={chunk.chunkId} className="marketplace-owned-card">
+                        <article
+                          key={chunk.chunkId}
+                          className="marketplace-owned-card"
+                        >
                           <div className="marketplace-owned-card__preview">
                             {chunk.imageUrl ? (
-                              <img src={chunk.imageUrl} alt={`Chunk ${truncateAddress(chunk.chunkId, 8, 4)}`} />
+                              <img
+                                src={chunk.imageUrl}
+                                alt={`Chunk ${truncateAddress(chunk.chunkId, 8, 4)}`}
+                              />
                             ) : (
-                              <div className="marketplace-owned-card__preview-placeholder">🏔️</div>
+                              <div className="marketplace-owned-card__preview-placeholder">
+                                🏔️
+                              </div>
                             )}
                             <div className="marketplace-owned-card__coords">
                               📍 ({chunk.cx ?? "?"}, {chunk.cy ?? "?"})
@@ -467,14 +530,24 @@ export default function Marketplace() {
                           <div className="marketplace-owned-card__body">
                             <div className="marketplace-owned-card__info">
                               <div className="marketplace-owned-card__row">
-                                <span className="marketplace-owned-card__label">Chunk ID</span>
-                                <span className="marketplace-owned-card__value" title={chunk.chunkId}>
+                                <span className="marketplace-owned-card__label">
+                                  Chunk ID
+                                </span>
+                                <span
+                                  className="marketplace-owned-card__value"
+                                  title={chunk.chunkId}
+                                >
                                   {truncateAddress(chunk.chunkId, 8, 6)}
                                 </span>
                               </div>
                               <div className="marketplace-owned-card__row">
-                                <span className="marketplace-owned-card__label">World</span>
-                                <span className="marketplace-owned-card__value" title={chunk.worldId}>
+                                <span className="marketplace-owned-card__label">
+                                  World
+                                </span>
+                                <span
+                                  className="marketplace-owned-card__value"
+                                  title={chunk.worldId}
+                                >
                                   {truncateAddress(chunk.worldId, 8, 6)}
                                 </span>
                               </div>
@@ -494,11 +567,19 @@ export default function Marketplace() {
                                 placeholder="Price (CHUNK)"
                               />
                               <button
-                                className={listedChunkIds.has(chunk.chunkId) ? "btn--secondary" : "btn--primary"}
+                                className={
+                                  listedChunkIds.has(chunk.chunkId)
+                                    ? "btn--secondary"
+                                    : "btn--primary"
+                                }
                                 onClick={() => handleListChunk(chunk)}
-                                disabled={isPending || listedChunkIds.has(chunk.chunkId)}
+                                disabled={
+                                  isPending || listedChunkIds.has(chunk.chunkId)
+                                }
                               >
-                                {listedChunkIds.has(chunk.chunkId) ? "✓ Listed" : "📤 List for Sale"}
+                                {listedChunkIds.has(chunk.chunkId)
+                                  ? "✓ Listed"
+                                  : "📤 List for Sale"}
                               </button>
                             </div>
                           </div>
@@ -509,7 +590,8 @@ export default function Marketplace() {
                     <div className="marketplace-empty">
                       <div className="marketplace-empty__icon">📦</div>
                       <p className="marketplace-empty__text">
-                        You don't have any chunks yet. Explore the game to mint your first chunk!
+                        You don't have any chunks yet. Explore the game to mint
+                        your first chunk!
                       </p>
                     </div>
                   )
@@ -540,7 +622,11 @@ export default function Marketplace() {
               Available Listings
             </h2>
             <div className="marketplace-section__actions">
-              <button className="btn--ghost" onClick={refreshListings} disabled={isLoading}>
+              <button
+                className="btn--ghost"
+                onClick={refreshListings}
+                disabled={isLoading}
+              >
                 {isLoading ? "⏳ Loading..." : "🔄 Refresh"}
               </button>
             </div>
@@ -562,26 +648,43 @@ export default function Marketplace() {
                   <div className="marketplace-listing-card__body">
                     <div className="marketplace-listing-card__info">
                       <div className="marketplace-listing-card__row">
-                        <span className="marketplace-listing-card__label">Chunk</span>
-                        <span className="marketplace-listing-card__value" title={listing.chunkId}>
+                        <span className="marketplace-listing-card__label">
+                          Chunk
+                        </span>
+                        <span
+                          className="marketplace-listing-card__value"
+                          title={listing.chunkId}
+                        >
                           {truncateAddress(listing.chunkId, 8, 6)}
                         </span>
                       </div>
                       <div className="marketplace-listing-card__row">
-                        <span className="marketplace-listing-card__label">World</span>
-                        <span className="marketplace-listing-card__value" title={listing.worldId}>
+                        <span className="marketplace-listing-card__label">
+                          World
+                        </span>
+                        <span
+                          className="marketplace-listing-card__value"
+                          title={listing.worldId}
+                        >
                           {truncateAddress(listing.worldId, 8, 6)}
                         </span>
                       </div>
                       <div className="marketplace-listing-card__row">
-                        <span className="marketplace-listing-card__label">Seller</span>
-                        <span className="marketplace-listing-card__value" title={listing.seller}>
+                        <span className="marketplace-listing-card__label">
+                          Seller
+                        </span>
+                        <span
+                          className="marketplace-listing-card__value"
+                          title={listing.seller}
+                        >
                           {truncateAddress(listing.seller, 6, 4)}
                         </span>
                       </div>
                     </div>
                     <div className="marketplace-listing-card__price">
-                      <span className="marketplace-listing-card__price-label">Price</span>
+                      <span className="marketplace-listing-card__price-label">
+                        Price
+                      </span>
                       <span className="marketplace-listing-card__price-value">
                         {listing.price} CHUNK
                       </span>

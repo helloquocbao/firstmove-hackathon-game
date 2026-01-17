@@ -1075,3 +1075,30 @@
     transform: rotate(360deg);
   }
 }
+
+/* NOTIFICATION BADGE */
+.game-panel-btn.notification {
+  position: relative;
+}
+
+.game-panel-btn.notification::after {
+  content: '';
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  background-color: #ff4444;
+  border-radius: 50%;
+  border: 2px solid #0d2137; /* Match main bg */
+  box-shadow: 0 0 5px rgba(255, 68, 68, 0.5);
+  z-index: 10;
+  pointer-events: none;
+  animation: pulseBadge 2s infinite;
+}
+
+@keyframes pulseBadge {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.7); }
+  70% { transform: scale(1.1); box-shadow: 0 0 0 4px rgba(255, 68, 68, 0); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 68, 68, 0); }
+}

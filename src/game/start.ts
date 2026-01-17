@@ -22,6 +22,7 @@ const TILE = 32;
 const CHUNK_SIZE = 5;
 const PLAY_STATE_KEY = "PLAY_STATE";
 const PLAY_TARGET_KEY = "PLAY_TARGET";
+const PLAY_CHESTS_KEY = "PLAY_CHESTS";
 
 type GameMapData = {
   tileSize: number;
@@ -124,6 +125,8 @@ export function startGame(mapData?: GameMapData) {
   DECO_DEFS.forEach((deco) => {
     loadSprite(deco.name, deco.image);
   });
+  
+  loadSprite("chest", "/sprites/rewards/chest_1.png");
 
   /* ================= MAP ================= */
 
@@ -1141,21 +1144,82 @@ export function startGame(mapData?: GameMapData) {
 
     const playTarget = loadPlayTarget();
     const playState = loadPlayState();
+    const chests = loadPlayChests();
+    
+    // Check if key is hidden in a chest
+    const keyHiddenInChest = chests.some(c => c.hasKey);
+
     const worldMatch =
       !playTarget?.worldId ||
       !resolvedMap.worldId ||
       playTarget.worldId === resolvedMap.worldId;
-    if (
-      playTarget &&
-      worldMatch &&
-      !playTarget.found &&
-      Number.isFinite(playTarget.x) &&
-      Number.isFinite(playTarget.y) &&
-      isWalkableTile(resolvedMap.grid[playTarget.y]?.[playTarget.x] ?? 0)
-    ) {
-      const keyPos = vec2(
-        playTarget.x * tileSize + tileSize / 2,
-        playTarget.y * tileSize + tileSize / 2,
+      
+    // Spawn Chests
+    if (worldMatch && chests.length > 0 && !playTarget?.found) {
+      chests.forEach(chest => {
+        // Validation: check terrain
+        const tileId = getTileIdAt(vec2(chest.x * tileSize, chest.y * tileSize));
+        if (
+          tileId !== null &&
+          isTileDefined(tileId) &&
+          isWalkableTile(tileId)
+        ) {
+           const chestObj = add([
+             sprite("chest"),
+             pos(chest.x * tileSize + tileSize / 2, chest.y * tileSize + tileSize / 2),
+             anchor("center"),
+             area({ shape: new Rect(vec2(0), 28, 24) }),
+             body({ isStatic: true }),
+             scale(0.8),
+             "chest",
+             "obstacle",
+             {
+               id: chest.id,
+               hasKey: chest.hasKey,
+               health: 2,
+             }
+           ]);
+           
+           // HP Bar for chest (optional, or just hit effect)
+        }
+      });
+      
+      // Chest collision logic
+      onCollide("attack", "chest", (attack, chest) => {
+        chest.health -= 1;
+        // Hit effect
+        const textPos = chest.pos.sub(0, 20);
+        add([
+          text("Hit!", { size: 10 }),
+          pos(textPos),
+          anchor("center"),
+          color(255, 255, 255),
+          lifespan(0.3),
+          move(vec2(0, -100), 50),
+        ]);
+        
+        if (chest.health <= 0) {
+          destroy(chest);
+          
+          // If chest had key, spawn key now
+          if (chest.hasKey && playTarget) {
+             spawnKey(playTarget, playState?.playId);
+          }
+        } else {
+           // Flash effect or shake
+           chest.color = rgb(255, 100, 100);
+           wait(0.1, () => {
+             if (chest.exists()) chest.color = rgb(255, 255, 255);
+           });
+        }
+      });
+    }
+
+    // Helper to spawn key
+    function spawnKey(target: {x: number, y: number}, pId?: string) {
+       const keyPos = vec2(
+        target.x * tileSize + tileSize / 2,
+        target.y * tileSize + tileSize / 2,
       );
       const keyObj = add([
         rect(tileSize * 0.6, tileSize * 0.6),
@@ -1165,13 +1229,34 @@ export function startGame(mapData?: GameMapData) {
         color(250, 210, 72),
         "key",
       ]);
+      // Key icon/text
+      const label = add([
+        text("KEY", { size: 8 }),
+        pos(keyPos),
+        anchor("center"),
+        color(0, 0, 0),
+      ]);
+      
       let keyFound = false;
       player.onCollide("key", () => {
         if (keyFound) return;
         keyFound = true;
         keyObj.destroy();
-        markKeyFound(playTarget, playState?.playId);
+        label.destroy();
+        markKeyFound(target, pId);
       });
+    }
+
+    if (
+      playTarget &&
+      worldMatch &&
+      !playTarget.found &&
+      !keyHiddenInChest && // Only spawn initially if NOT in a chest
+      Number.isFinite(playTarget.x) &&
+      Number.isFinite(playTarget.y) &&
+      isWalkableTile(resolvedMap.grid[playTarget.y]?.[playTarget.x] ?? 0)
+    ) {
+       spawnKey(playTarget, playState?.playId);
     }
 
     onUpdate(() => {
@@ -1188,8 +1273,9 @@ export function startGame(mapData?: GameMapData) {
     function triggerGameOver() {
       if (isGameOver) return;
       isGameOver = true;
-      stopEnemyMaintainer();
+      console.log("Triggering Game Over");
       window.dispatchEvent(new CustomEvent("game:player-dead"));
+      stopEnemyMaintainer();
     }
 
     function handleFallDeath() {
@@ -1374,6 +1460,23 @@ function loadPlayTarget(): {
   } catch (error) {
     console.error(error);
     return null;
+  }
+
+}
+
+function loadPlayChests(): {
+  x: number;
+  y: number;
+  hasKey: boolean;
+  id: string;
+}[] {
+  const raw = localStorage.getItem(PLAY_CHESTS_KEY);
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    console.error(error);
+    return [];
   }
 }
 

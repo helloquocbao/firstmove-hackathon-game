@@ -21,7 +21,7 @@ import {
   normalizeTileId,
   normalizeDecoId,
 } from "../game/tiles";
-import { User, Gift, Info, X, Copy, RefreshCw, Play } from "lucide-react";
+import { User, Gift, Info, X, Copy, RefreshCw, Play, Skull } from "lucide-react";
 import { WalletHeader } from "../components";
 import "./GamePage.css";
 
@@ -97,6 +97,7 @@ export default function GamePage() {
     networkStatus: "⚪ Loading...",
     validatorStatus: "⚪ Loading...",
   });
+  const [respawnCountdown, setRespawnCountdown] = useState(null);
 
   useEffect(() => {
     const stored = loadPlayState();
@@ -120,8 +121,27 @@ export default function GamePage() {
 
   useEffect(() => {
     const handler = () => setIsKeyFound(true);
+    const deadHandler = () => {
+      console.log("GamePage: Received game:player-dead event");
+      setRespawnCountdown(3);
+      const interval = setInterval(() => {
+        setRespawnCountdown((prev) => {
+          if (prev === null || prev <= 1) {
+            clearInterval(interval);
+            reloadGameFromStorage();
+            setPlayNotice(""); // Clear any notice
+            return null; // Close modal
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    };
     window.addEventListener("game:key-found", handler);
-    return () => window.removeEventListener("game:key-found", handler);
+    window.addEventListener("game:player-dead", deadHandler);
+    return () => {
+      window.removeEventListener("game:key-found", handler);
+      window.removeEventListener("game:player-dead", deadHandler);
+    };
   }, []);
 
   // Listen for difficulty updates from game
@@ -350,6 +370,7 @@ export default function GamePage() {
   function clearPlayState() {
     localStorage.removeItem(PLAY_STATE_KEY);
     localStorage.removeItem(PLAY_TARGET_KEY);
+    localStorage.removeItem("PLAY_CHESTS");
   }
 
   function resetPlayState(nextNotice) {
@@ -664,6 +685,42 @@ export default function GamePage() {
     }
   }
 
+  function generateChests(keyTarget) {
+    const raw = localStorage.getItem("CUSTOM_MAP");
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      const grid = Array.isArray(parsed.grid) ? parsed.grid : [];
+      const floors = [];
+      for (let y = 0; y < grid.length; y += 1) {
+        const row = grid[y] ?? [];
+        for (let x = 0; x < row.length; x += 1) {
+          if (isWalkableTile(Number(row[x]))) {
+            floors.push({ x, y });
+          }
+        }
+      }
+      if (!floors.length) return [];
+
+      const chests = [{ x: keyTarget.x, y: keyTarget.y, hasKey: true, id: "chest_key" }];
+
+      // Pick 4 more unique locations
+      let attempts = 0;
+      while (chests.length < 5 && attempts < 100) {
+        attempts++;
+        const candidate = floors[Math.floor(Math.random() * floors.length)];
+        const exists = chests.some(c => c.x === candidate.x && c.y === candidate.y);
+        if (!exists) {
+          chests.push({ x: candidate.x, y: candidate.y, hasKey: false, id: `chest_${chests.length}` });
+        }
+      }
+      return chests;
+    } catch (e) {
+      console.error(e);
+      return [];
+    }
+  }
+
   async function handlePlayOnChain(nextMode) {
     setPlayError("");
     setPlayNotice("");
@@ -816,6 +873,9 @@ export default function GamePage() {
       const target = pickKeyTarget();
       if (target) {
         storePlayTarget({ ...target, worldId: worldId, found: false });
+        // Generate chests
+        const chests = generateChests(target);
+        localStorage.setItem("PLAY_CHESTS", JSON.stringify(chests));
       }
 
       storePlayState({
@@ -993,6 +1053,7 @@ export default function GamePage() {
       );
       await loadRewardBalance();
       await loadCharacter(); // Refresh character stats (daily plays, free plays)
+      reloadGameFromStorage(); // Refresh map to clear chests
     } catch (error) {
       setClaimError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -1079,7 +1140,7 @@ export default function GamePage() {
           <User size={18} />
         </button>
         <button
-          className={`game-panel-btn ${activePanel === 'rewards' ? 'active' : ''}`}
+          className={`game-panel-btn ${activePanel === 'rewards' ? 'active' : ''} ${playId && isKeyFound ? 'notification' : ''}`}
           onClick={() => setActivePanel(activePanel === 'rewards' ? null : 'rewards')}
           title="Rewards"
         >
@@ -1365,6 +1426,31 @@ export default function GamePage() {
           )}
         </div>
       </div>
+
+      {/* Death Screen Overlay - Pixel Art Style */
+        respawnCountdown !== null && (
+          <div className="game-modal-overlay" style={{ zIndex: 9999, backgroundColor: 'rgba(20, 10, 10, 0.85)' }}>
+            <div className="game-modal" style={{
+              border: '4px solid #fff',
+              borderRadius: '0',
+              backgroundColor: '#000',
+              boxShadow: '8px 8px 0px rgba(0,0,0,0.5)',
+              imageRendering: 'pixelated',
+              fontFamily: '"Courier New", monospace',
+              textAlign: 'center',
+              padding: '2rem',
+              minWidth: '300px'
+            }}>
+              <div style={{ color: '#ff3333', marginBottom: '1rem' }}>
+                <Skull size={64} style={{ display: 'block', margin: '0 auto 1rem auto' }} strokeWidth={1.5} />
+                <h2 style={{ fontSize: '32px', textTransform: 'uppercase', letterSpacing: '2px', textShadow: '2px 2px 0px #550000' }}>YOU HAVE FALLEN</h2>
+              </div>
+              <div style={{ fontSize: '20px', color: '#fff' }}>
+                RESPAWN IN <span style={{ color: '#ffff00', fontSize: '24px' }}>{respawnCountdown}</span>
+              </div>
+            </div>
+          </div>
+        )}
 
       {/* Create Character Modal */}
       {showCreateCharacterModal && (

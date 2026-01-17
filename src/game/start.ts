@@ -257,6 +257,7 @@ export function startGame(mapData?: GameMapData) {
     };
 
     let difficultyScale = 1;
+    const STAT_SCALE_POWER = 1.5;
 
     type GoblinState = "idle" | "patrol" | "chase" | "attack";
 
@@ -289,6 +290,7 @@ export function startGame(mapData?: GameMapData) {
       customDamage?: number,
       customSpeed?: number,
     ) {
+      const variance = 0.85 + Math.random() * 0.3;
       const baseHealth =
         customHp !== undefined
           ? Math.max(1, Math.round(customHp / Math.max(0.1, difficultyScale)))
@@ -300,8 +302,8 @@ export function startGame(mapData?: GameMapData) {
               Math.round(customDamage / Math.max(0.1, difficultyScale)),
             )
           : GOBLIN_CONFIG.damage;
-      const hp = baseHealth;
-      const damage = baseDamage;
+      const hp = Math.max(1, Math.round(baseHealth * variance));
+      const damage = Math.max(1, Math.round(baseDamage * variance));
       const speed = customSpeed ?? GOBLIN_CONFIG.speed;
 
       const goblin = add([
@@ -315,8 +317,8 @@ export function startGame(mapData?: GameMapData) {
           facing: 1,
           health: hp,
           maxHealth: hp,
-          baseHealth: baseHealth,
-          baseDamage: baseDamage,
+          baseHealth: Math.max(1, Math.round(baseHealth * variance)),
+          baseDamage: Math.max(1, Math.round(baseDamage * variance)),
           damage: damage,
           speed: speed,
           attackTimer: 0,
@@ -393,6 +395,7 @@ export function startGame(mapData?: GameMapData) {
       customDamage?: number,
       customSpeed?: number,
     ) {
+      const variance = 0.85 + Math.random() * 0.3;
       const baseHealth =
         customHp !== undefined
           ? Math.max(1, Math.round(customHp / Math.max(0.1, difficultyScale)))
@@ -404,8 +407,8 @@ export function startGame(mapData?: GameMapData) {
               Math.round(customDamage / Math.max(0.1, difficultyScale)),
             )
           : YOD_CONFIG.damage;
-      const hp = baseHealth;
-      const damage = baseDamage;
+      const hp = Math.max(1, Math.round(baseHealth * variance));
+      const damage = Math.max(1, Math.round(baseDamage * variance));
       const speed = customSpeed ?? YOD_CONFIG.speed;
 
       const yod = add([
@@ -419,8 +422,8 @@ export function startGame(mapData?: GameMapData) {
           facing: 1,
           health: hp,
           maxHealth: hp,
-          baseHealth: baseHealth,
-          baseDamage: baseDamage,
+          baseHealth: Math.max(1, Math.round(baseHealth * variance)),
+          baseDamage: Math.max(1, Math.round(baseDamage * variance)),
           damage: damage,
           speed: speed,
           attackTimer: 0,
@@ -492,8 +495,9 @@ export function startGame(mapData?: GameMapData) {
     }) {
       const baseHealth = enemy.baseHealth ?? enemy.maxHealth ?? 1;
       const baseDamage = enemy.baseDamage ?? enemy.damage ?? 1;
-      const nextMax = Math.max(1, Math.ceil(baseHealth * difficultyScale));
-      const nextDamage = Math.max(1, Math.ceil(baseDamage * difficultyScale));
+      const statScale = Math.pow(difficultyScale, STAT_SCALE_POWER);
+      const nextMax = Math.max(1, Math.ceil(baseHealth * statScale));
+      const nextDamage = Math.max(1, Math.ceil(baseDamage * statScale));
       const currentRatio =
         (enemy.health ?? nextMax) / (enemy.maxHealth ?? nextMax);
       enemy.maxHealth = nextMax;
@@ -649,7 +653,10 @@ export function startGame(mapData?: GameMapData) {
                 anchor("center"),
                 lifespan(0.12),
                 "goblin-attack",
-                { damage: goblin.damage ?? GOBLIN_CONFIG.damage },
+                {
+                  damage: goblin.damage ?? GOBLIN_CONFIG.damage,
+                  source: "goblin",
+                },
               ]);
             });
           }
@@ -796,7 +803,10 @@ export function startGame(mapData?: GameMapData) {
                 anchor("center"),
                 lifespan(0.12),
                 "goblin-attack",
-                { damage: yod.damage ?? YOD_CONFIG.damage },
+                {
+                  damage: yod.damage ?? YOD_CONFIG.damage,
+                  source: "yod",
+                },
               ]);
             });
           }
@@ -888,7 +898,7 @@ export function startGame(mapData?: GameMapData) {
         );
         yods.push(newYod);
         console.log(
-          `[Maintainer] Spawned yod at (${spawn.x}, ${spawn.y}) HP:${newYod.health} DMG:${newYod.damage}`,
+          `[Maintainer] Spawned yod at (${spawn.x}, ${spawn.y}) HP:${newYod.health} DMG:${newYod.damage} scale:${difficultyScale.toFixed(2)}`,
         );
       } else {
         const newGoblin = spawnGoblin(
@@ -900,7 +910,7 @@ export function startGame(mapData?: GameMapData) {
         );
         goblins.push(newGoblin);
         console.log(
-          `[Maintainer] Spawned goblin at (${spawn.x}, ${spawn.y}) HP:${config.baseHp} DMG:${config.baseDamage}`,
+          `[Maintainer] Spawned goblin at (${spawn.x}, ${spawn.y}) HP:${newGoblin.health} DMG:${newGoblin.damage} scale:${difficultyScale.toFixed(2)}`,
         );
       }
     }
@@ -1095,6 +1105,7 @@ export function startGame(mapData?: GameMapData) {
 
       // Get damage from the attack hitbox (set when goblin attacks)
       const goblinDamage = attack.damage ?? GOBLIN_CONFIG.damage;
+
       playerHP -= goblinDamage;
       if (playerHP < 0) playerHP = 0;
       updateHPBar();

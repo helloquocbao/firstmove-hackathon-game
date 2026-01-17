@@ -64,72 +64,39 @@ Hệ thống spawn quái và điều chỉnh độ khó dựa trên dữ liệu 
 | 8     | Master    | 15  | 28     | 70    | 3.0           |
 | 9     | Nightmare | 20  | 35     | 75    | 4.0           |
 
-### Network Score (Congestion)
+### Network Score (TPS)
 
-Tính từ hoạt động network:
+Tinh tu TPS dua tren totalTransaction (checkpoint):
 
 ```typescript
-txScore = min(50, txDelta / 40)           // 0-50 điểm từ số TX mới
-gasScore = min(50, (gasPrice / 1000) × 10) // 0-50 điểm từ gas price
-networkScore = txScore + gasScore          // 0-100
+tps = deltaTx / deltaSec
+targetTps = 100
+networkScore = clamp(0..100, (tps / targetTps) * 100)
 ```
 
-| Score  | Status       | Ý nghĩa                |
+| Score  | Status       | Y nghia                |
 | ------ | ------------ | ---------------------- |
-| 0-25   | 🟢 Quiet     | Ít giao dịch, gas thấp |
-| 25-50  | 🟡 Normal    | Hoạt động bình thường  |
-| 50-75  | 🟠 Busy      | Nhiều giao dịch        |
-| 75-100 | 🔴 Very Busy | Congestion nặng        |
+| 0-25   | Quiet        | It giao dich           |
+| 25-50  | Normal       | On dinh                |
+| 50-75  | Busy         | Nhieu giao dich        |
+| 75-100 | Very Busy    | Congestion nang        |
 
 ### Validator Health Score
 
-Tính từ tình trạng validators:
-
-```typescript
-// Điểm từ số validators (0-50)
-if (activeCount >= 100) score += 50;
-else if (activeCount >= 80) score += 40;
-// ...
-
-// Điểm từ epoch progress (0-50)
-if (epochProgress < 1.0) score += 50;
-// ...
-```
-
-| Score  | Status      | Ý nghĩa           |
-| ------ | ----------- | ----------------- |
-| 80-100 | 🟢 Healthy  | Network ổn định   |
-| 60-80  | 🟡 Good     | Tốt               |
-| 40-60  | 🟠 Warning  | Cần chú ý         |
-| 0-40   | 🔴 Critical | Network có vấn đề |
+Hien tai co dinh = 100 (khong fetch systemState).
 
 ---
 
-## 🔢 Công thức Effective Difficulty
+## Effective Difficulty
 
 ```typescript
-// Network Factor: 0.8 - 1.2
-networkFactor = 0.8 + (networkScore / 100) × 0.4
+networkFactor = 0.8 + (networkScore / 100) * 0.4   // 0.8 - 1.2
+validatorFactor = 1.1                               // fixed
 
-// Validator Factor: 0.9 - 1.1
-validatorFactor = 0.9 + (healthScore / 100) × 0.2
-
-// Effective Difficulty (capped at 9)
-effectiveDifficulty = min(9, baseDifficulty × networkFactor × validatorFactor)
+effectiveDifficulty = min(9, baseDifficulty * networkFactor * validatorFactor)
 ```
 
-### Ví dụ
-
-| Scenario            | Base | Network  | Validator | Effective |
-| ------------------- | ---- | -------- | --------- | --------- |
-| Đêm khuya, ít người | 3    | 🟢 (0.8) | 🟢 (1.1)  | 2.64      |
-| Giờ cao điểm        | 3    | 🟡 (1.0) | 🟢 (1.1)  | 3.30      |
-| NFT mint event      | 3    | 🔴 (1.2) | 🟢 (1.1)  | 3.96      |
-| Network có vấn đề   | 3    | 🟡 (1.0) | 🔴 (0.9)  | 2.70      |
-
 ---
-
-## 🧩 Cách sử dụng
 
 ### 1. Khởi tạo EnemyMaintainer
 
@@ -212,7 +179,7 @@ adjustedEnemiesPerChunk = enemiesPerChunk × (0.7 + (effectiveDifficulty / 9) ×
 targetEnemyCount = ceil(chunkCount × adjustedEnemiesPerChunk)
 
 // Giới hạn max
-targetEnemyCount = min(targetEnemyCount, min(20, chunkCount × 3))
+targetEnemyCount = min(targetEnemyCount, chunkCount × 3)
 ```
 
 ---
@@ -241,7 +208,7 @@ targetEnemyCount = min(targetEnemyCount, min(20, chunkCount × 3))
 ```typescript
 // enemyMaintainer.ts
 const CHECK_INTERVAL = 10000; // 10 giây
-const MAX_ENEMIES = 20; // Tối đa 20 quái trên map
+const MAX_ENEMIES = chunkCount * 3;
 const MIN_ENEMIES = 1; // Ít nhất 1 quái
 
 // start.ts
@@ -256,7 +223,7 @@ const TILE_SIZE = 32; // 32px per tile
 Xem console để theo dõi:
 
 ```
-[EnemyMaintainer] Current: 3/5 | Difficulty: 2.8 | Net: 35 | Val: 85
+[EnemyMaintainer] Current: 3/5 | Difficulty: 2.8 | Net: 35 | Val: 100
 [Maintainer] Spawned goblin at (12, 8) HP:4 DMG:10
 ```
 
@@ -266,6 +233,6 @@ Xem console để theo dõi:
 
 1. **Difficulty từ WorldMap** được set khi admin tạo world (1-9)
 2. **Network activity** làm game khó hơn nhưng reward cũng nhiều hơn
-3. **Validator health** ảnh hưởng nhẹ (~10%)
+3. **Validator health** hiện cố định (100)
 4. **Spawn xa player** ít nhất 4 tiles để tránh bất ngờ
 5. **Cleanup** khi scene kết thúc để tránh memory leak

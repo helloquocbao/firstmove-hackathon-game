@@ -34,6 +34,42 @@ export default defineConfig({
           });
         },
       },
+      "/walrus-upload": {
+        target: "https://publisher.walrus-testnet.walrus.space",
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/walrus-upload/, ""),
+      },
+      "/walrus-pub-1": {
+        target: "https://publisher.walrus-testnet.walrus.space",
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/walrus-pub-1/, ""),
+      },
+      "/walrus-pub-2": {
+        target: "https://walrus-testnet-publisher.nodes.guru",
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/walrus-pub-2/, ""),
+      },
+      "/walrus-pub-3": {
+        target: "https://publisher.testnet.blob.store",
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/walrus-pub-3/, ""),
+      },
+      "/walrus-pub-4": {
+        target: "https://walrus-publish-testnet.chainode.tech",
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/walrus-pub-4/, ""),
+      },
+      "/walrus-pub-5": {
+        target: "https://testnet-publisher.walrus.space",
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/walrus-pub-5/, ""),
+      },
     },
   },
 });

@@ -26,6 +26,7 @@ import {
   normalizeDecoId,
   PaintLayer,
 } from "../game/tiles";
+import { useWalrusImageUpload } from "../hooks";
 import "./EditorGame.css";
 
 /**
@@ -103,6 +104,14 @@ export default function EditorGame() {
   const chunkIdCacheRef = useRef<Record<string, string>>({});
   const hoverRequestRef = useRef(0);
   const gridWrapRef = useRef<HTMLDivElement | null>(null);
+  const chunkGridRef = useRef<HTMLDivElement | null>(null);
+
+  // Walrus image upload
+  const {
+    uploadCanvas,
+    isUploading: isUploadingImage,
+    uploadError: walrusUploadError,
+  } = useWalrusImageUpload();
   const clickTileRef = useRef<{ x: number; y: number } | null>(null);
   const dragRef = useRef({
     active: false,
@@ -249,6 +258,75 @@ export default function EditorGame() {
 
   function closeChunkModal() {
     setIsChunkModalOpen(false);
+  }
+
+  async function captureAndUploadChunkImage() {
+    if (!chunkGridRef.current || !activeChunkCoords) {
+      setNotice("No chunk grid to capture.");
+      return;
+    }
+
+    setNotice("Capturing chunk image...");
+
+    try {
+      // Create a canvas from the chunk grid
+      const gridElement = chunkGridRef.current;
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        setNotice("Failed to create canvas context.");
+        return;
+      }
+
+      // Set canvas size to match chunk grid
+      const canvasSize = CHUNK_SIZE * TILE_SIZE;
+      canvas.width = canvasSize;
+      canvas.height = canvasSize;
+
+      // Draw each tile onto the canvas
+      for (let y = 0; y < CHUNK_SIZE; y++) {
+        for (let x = 0; x < CHUNK_SIZE; x++) {
+          const gx = activeChunkCoords.cx * CHUNK_SIZE + x;
+          const gy = activeChunkCoords.cy * CHUNK_SIZE + y;
+          const tileId = grid[gy]?.[gx] ?? 0;
+          const decoId = decoGrid[gy]?.[gx] ?? 0;
+
+          const tileDef = getTileDef(tileId);
+          const decoDef = decoId > 0 ? getDecoDef(decoId) : null;
+
+          // Draw base tile
+          if (tileDef) {
+            await drawImageToCanvas(ctx, tileDef.image, x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+          } else {
+            ctx.fillStyle = VOID_TILE_COLOR;
+            ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+          }
+
+          // Draw decoration on top
+          if (decoDef) {
+            await drawImageToCanvas(ctx, decoDef.image, x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+          }
+        }
+      }
+
+      setNotice("Uploading to Walrus...");
+
+      // Upload canvas to Walrus
+      const fileName = `chunk_${activeChunkCoords.cx}_${activeChunkCoords.cy}_${Date.now()}.png`;
+      const result = await uploadCanvas(canvas, fileName);
+
+      console.log("=== Walrus Upload Result ===");
+      console.log("Blob ID:", result.blobId);
+      console.log("Patch ID:", result.patchId);
+      console.log("Image URL:", result.url);
+      console.log("Full result:", result);
+
+      setNotice(`Chunk image uploaded! URL: ${result.url}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("Failed to upload chunk image:", error);
+      setNotice(`Upload failed: ${message}`);
+    }
   }
 
   function paintModalTile(localX: number, localY: number) {
@@ -1464,6 +1542,7 @@ export default function EditorGame() {
               <div className="editor-modal__body">
                 <div className="editor-modal__canvas">
                   <div
+                    ref={chunkGridRef}
                     className="editor-chunk-grid"
                     style={{
                       gridTemplateColumns: `repeat(${CHUNK_SIZE}, ${TILE_SIZE}px)`,
@@ -1567,10 +1646,20 @@ export default function EditorGame() {
                 >
                   {busyAction === "Save chunk" ? "Saving..." : "Save chunk"}
                 </button>
+                <button
+                  className="btn btn--dark"
+                  onClick={captureAndUploadChunkImage}
+                  disabled={isUploadingImage || !isConnected}
+                >
+                  {isUploadingImage ? "Uploading..." : "Update Image"}
+                </button>
                 <button className="btn btn--outline" onClick={closeChunkModal}>
                   Cancel
                 </button>
               </div>
+              {walrusUploadError && (
+                <div className="panel__error">{walrusUploadError}</div>
+              )}
             </div>
           </div>
         )}
@@ -1629,6 +1718,35 @@ function createDefaultDecoGrid() {
   return Array(CHUNK_SIZE)
     .fill(0)
     .map(() => Array(CHUNK_SIZE).fill(0));
+}
+
+/**
+ * Helper to draw an image onto canvas
+ */
+function drawImageToCanvas(
+  ctx: CanvasRenderingContext2D,
+  src: string,
+  x: number,
+  y: number,
+  width: number,
+  height: number
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      ctx.imageSmoothingEnabled = false; // Keep pixelated look
+      ctx.drawImage(img, x, y, width, height);
+      resolve();
+    };
+    img.onerror = () => {
+      // If image fails to load, fill with void color
+      ctx.fillStyle = VOID_TILE_COLOR;
+      ctx.fillRect(x, y, width, height);
+      resolve();
+    };
+    img.src = src;
+  });
 }
 
 function getTileStyle(tileId: number, decoId: number = 0) {

@@ -1,153 +1,141 @@
-import { useCallback, useState } from "react";
-import {
-  useCurrentAccount,
-  useSignAndExecuteTransaction,
-} from "@mysten/dapp-kit";
-import { WalrusFile } from "@mysten/walrus";
-import { SuiClient } from "@mysten/sui/client";
-import { SUI_RPC_URL } from "../chain/config";
+import { useCallback, useMemo, useState } from "react";
 
-// Walrus configuration
-const WALRUS_EPOCHS = 3;
-const WALRUS_NETWORK = "testnet";
-const WALRUS_WASM_URL =
-  "https://unpkg.com/@mysten/walrus-wasm@latest/web/walrus_wasm_bg.wasm";
-const WALRUS_UPLOAD_RELAY = "https://upload-relay.testnet.walrus.space";
-const WALRUS_GATEWAY = "https://wal-aggregator-testnet.staketab.org/v1/blobs/by-quilt-patch-id";
+type UploadResult = {
+  status: "success";
+  blobId: string;
+  url: string;
+};
+
+// Walrus testnet publishers - try multiple if one fails
+// List from https://docs.walrus.site/usage/public-services.html
+const WALRUS_PUBLISHERS = [
+  "/walrus-pub-1",  // publisher.walrus-testnet.walrus.space (official)
+  "/walrus-pub-2",  // walrus-testnet-publisher.nodes.guru
+  "/walrus-pub-3",  // publisher.testnet.blob.store
+  "/walrus-pub-4",  // walrus-publish-testnet.chainode.tech
+  "/walrus-pub-5",  // testnet-publisher.walrus.space
+];
+
+const WALRUS_AGGREGATOR =
+  import.meta.env.VITE_WALRUS_AGGREGATOR ??
+  "https://aggregator.walrus-testnet.walrus.space";
+const WALRUS_EPOCHS = Number(import.meta.env.VITE_WALRUS_EPOCHS ?? 5);
 
 /**
- * Get Walrus image URL from patchId
+ * Build Walrus public image URL from blobId
  */
-export const getWalrusImageUrl = (patchId: string): string =>
-  `${WALRUS_GATEWAY}/${patchId}`;
+export const getWalrusImageUrl = (blobId: string): string =>
+  `${WALRUS_AGGREGATOR}/v1/blobs/${blobId}`;
 
 /**
- * Create Walrus client with Sui extension
+ * Upload blob to Walrus via Publisher HTTP API with fallback and retry
  */
-const createWalrusClient = async () => {
-  const { walrus } = await import("@mysten/walrus");
-  const client = new SuiClient({ url: SUI_RPC_URL });
-  return client.$extend(
-    walrus({
-      wasmUrl: WALRUS_WASM_URL,
-      network: WALRUS_NETWORK,
-      uploadRelay: {
-        host: WALRUS_UPLOAD_RELAY,
-        sendTip: {
-          max: 1_000,
-        },
-      },
-    })
-  );
+async function uploadToWalrusPublisher(
+  data: Uint8Array,
+  epochs: number = WALRUS_EPOCHS,
+  maxRetries: number = 10,
+  retryDelay: number = 2000
+): Promise<{ blobId: string; url: string }> {
+  let attempt = 0;
+
+  while (attempt < maxRetries) {
+    attempt++;
+    console.log(`Walrus upload attempt ${attempt}/${maxRetries}`);
+
+    for (const publisher of WALRUS_PUBLISHERS) {
+      try {
+        const url = `${publisher}/v1/blobs?epochs=${epochs}`;
+        console.log(`Trying publisher: ${publisher}`);
+
+        const response = await fetch(url, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/octet-stream",
+          },
+          body: data,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => "");
+          console.warn(`${publisher} failed: ${response.status}`);
+          continue; // Try next publisher
+        }
+
+        const result = await response.json();
+
+        let blobId: string;
+        if (result.newlyCreated) {
+          blobId = result.newlyCreated.blobObject.blobId;
+        } else if (result.alreadyCertified) {
+          blobId = result.alreadyCertified.blobId;
+        } else {
+          console.warn(`${publisher}: unexpected response format`);
+          continue;
+        }
+
+        console.log(`✅ Upload success via ${publisher}, blobId: ${blobId}`);
+        return {
+          blobId,
+          url: getWalrusImageUrl(blobId),
+        };
+      } catch (error) {
+        console.warn(`${publisher} error:`, error);
+      }
+    }
+
+    // All publishers failed this round, wait and retry
+    if (attempt < maxRetries) {
+      console.log(`All publishers failed. Retrying in ${retryDelay / 1000}s...`);
+      await new Promise((resolve) => setTimeout(resolve, retryDelay));
+    }
+  }
+
+  throw new Error(`Walrus upload failed after ${maxRetries} attempts. All publishers unavailable.`);
+}
+
+const decodeBase64 = (base64: string) => {
+  const base64Data = base64.includes(",") ? base64.split(",")[1] : base64;
+  const binary = atob(base64Data);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+};
+
+const assertImageType = (type: string) => {
+  if (!type.startsWith("image/")) {
+    throw new Error("Only image uploads are supported");
+  }
 };
 
 /**
- * Create WalrusFile from bytes
+ * Walrus image uploader hook using Publisher HTTP API
+ * Simple approach without WASM - just HTTP PUT to publisher
  */
-const walrusFileFromBytes = (
-  name: string,
-  bytes: Uint8Array,
-  contentType: string
-) =>
-  WalrusFile.from({
-    contents: bytes,
-    identifier: name,
-    tags: {
-      "content-type": contentType,
-      "file-name": name,
-    },
-  });
-
-/**
- * Hook for uploading chunk map images to Walrus
- * Simplified version focused on image uploads for map thumbnails
- */
-export function useWalrusUpload() {
+export function useWalrusImageUpload() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const account = useCurrentAccount();
-  const { mutate: signAndExecuteTransaction } = useSignAndExecuteTransaction();
 
-  /**
-   * Execute transaction with promise wrapper
-   */
-  const executeTransaction = useCallback(
-    (tx: any): Promise<string> =>
-      new Promise((resolve, reject) => {
-        signAndExecuteTransaction(
-          { transaction: tx },
-          {
-            onSuccess: (result) => resolve(result.digest),
-            onError: (err) => reject(err),
-          }
-        );
-      }),
-    [signAndExecuteTransaction]
-  );
-
-  /**
-   * Upload a single image to Walrus
-   * @param imageBlob - Blob or File of the image
-   * @param fileName - Optional custom filename
-   * @returns Object with blobId and patchId
-   */
-  const uploadImage = useCallback(
-    async (
-      imageBlob: Blob,
-      fileName?: string
-    ): Promise<{ status: "success"; blobId: string; patchId: string; url: string }> => {
-      if (!account) {
-        throw new Error("Wallet not connected");
-      }
-
+  const uploadBlob = useCallback(
+    async (blob: Blob, _fileName?: string): Promise<UploadResult> => {
       setUploadError(null);
       setIsUploading(true);
 
       try {
-        const client = await createWalrusClient();
+        const contentType = blob.type || "image/png";
+        assertImageType(contentType);
 
-        const buffer = await imageBlob.arrayBuffer();
-        const name = fileName || `chunk-map-${Date.now()}.png`;
-        const files = [
-          walrusFileFromBytes(
-            name,
-            new Uint8Array(buffer),
-            imageBlob.type || "image/png"
-          ),
-        ];
+        const buffer = await blob.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
 
-        const flow = client.walrus.writeFilesFlow({ files });
-        await flow.encode();
+        const result = await uploadToWalrusPublisher(bytes, WALRUS_EPOCHS);
 
-        // Register
-        const registerTx = flow.register({
-          epochs: WALRUS_EPOCHS,
-          owner: account.address,
-          deletable: true,
-        });
-        const registerDigest = await executeTransaction(registerTx);
-
-        // Upload
-        await flow.upload({ digest: registerDigest });
-
-        // Certify
-        const certifyTx = flow.certify();
-        await executeTransaction(certifyTx);
-
-        // Get results
-        const uploaded = await flow.listFiles();
-        if (!uploaded.length) {
-          throw new Error("Upload failed: no files returned");
-        }
-
-        const imageFile = uploaded[0];
-        const blobId = imageFile.blobId;
-        const patchId = imageFile.id;
-
-        // Construct public URL using patchId
-        const url = getWalrusImageUrl(patchId);
-
-        return { status: "success", blobId, patchId, url };
+        return {
+          status: "success",
+          blobId: result.blobId,
+          url: result.url,
+        };
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Upload failed";
@@ -157,21 +145,20 @@ export function useWalrusUpload() {
         setIsUploading(false);
       }
     },
-    [account, executeTransaction]
+    []
   );
 
-  /**
-   * Upload canvas element as image to Walrus
-   * Convenient for capturing game/editor canvas
-   * @param canvas - HTMLCanvasElement to capture
-   * @param fileName - Optional filename
-   */
+  const uploadFile = useCallback(
+    async (file: File): Promise<UploadResult> => uploadBlob(file, file.name),
+    [uploadBlob]
+  );
+
   const uploadCanvas = useCallback(
     async (
       canvas: HTMLCanvasElement,
       fileName?: string
-    ): Promise<{ status: "success"; blobId: string; patchId: string; url: string }> => {
-      return new Promise((resolve, reject) => {
+    ): Promise<UploadResult> =>
+      new Promise((resolve, reject) => {
         canvas.toBlob(
           async (blob) => {
             if (!blob) {
@@ -179,59 +166,53 @@ export function useWalrusUpload() {
               return;
             }
             try {
-              const result = await uploadImage(blob, fileName);
+              const result = await uploadBlob(blob, fileName);
               resolve(result);
             } catch (error) {
               reject(error);
             }
           },
           "image/png",
-          1.0
+          1
         );
-      });
-    },
-    [uploadImage]
+      }),
+    [uploadBlob]
   );
 
-  /**
-   * Upload base64 image string to Walrus
-   * @param base64 - Base64 encoded image string (with or without data URI prefix)
-   * @param fileName - Optional filename
-   */
   const uploadBase64 = useCallback(
-    async (
-      base64: string,
-      fileName?: string
-    ): Promise<{ status: "success"; blobId: string; patchId: string; url: string }> => {
-      // Remove data URI prefix if present
-      const base64Data = base64.includes(",") ? base64.split(",")[1] : base64;
-
-      // Decode base64 to bytes
-      const binaryString = atob(base64Data);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-
+    async (base64: string, fileName?: string): Promise<UploadResult> => {
+      const bytes = decodeBase64(base64);
       const blob = new Blob([bytes], { type: "image/png" });
-      return uploadImage(blob, fileName);
+      return uploadBlob(blob, fileName);
     },
-    [uploadImage]
+    [uploadBlob]
   );
 
-  /**
-   * Clear any upload error
-   */
-  const clearError = useCallback(() => {
-    setUploadError(null);
-  }, []);
+  const clearError = useCallback(() => setUploadError(null), []);
 
-  return {
-    uploadImage,
-    uploadCanvas,
-    uploadBase64,
-    isUploading,
-    uploadError,
-    clearError,
-  };
+  return useMemo(
+    () => ({
+      uploadBlob,
+      uploadFile,
+      uploadCanvas,
+      uploadBase64,
+      isUploading,
+      uploadError,
+      clearError,
+    }),
+    [
+      uploadBase64,
+      uploadBlob,
+      uploadCanvas,
+      uploadError,
+      uploadFile,
+      isUploading,
+      clearError,
+    ]
+  );
+}
+
+// Backward-compatible export keeping the old hook name
+export function useWalrusUpload() {
+  return useWalrusImageUpload();
 }

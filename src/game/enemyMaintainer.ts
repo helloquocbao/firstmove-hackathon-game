@@ -60,7 +60,7 @@ export class EnemyMaintainer {
     const stats = this.getBaseStats();
     // Target = chunks × enemiesPerChunk (cơ bản, sẽ được điều chỉnh theo network)
     this.targetEnemyCount = Math.ceil(
-      this.config.chunkCount * stats.enemiesPerChunk
+      this.config.chunkCount * stats.enemiesPerChunk,
     );
   }
 
@@ -126,7 +126,7 @@ export class EnemyMaintainer {
       } catch (error) {
         console.warn(
           "[EnemyMaintainer] Sui fetch failed, using cached data:",
-          error
+          error,
         );
       } finally {
         this.isFetching = false;
@@ -140,7 +140,7 @@ export class EnemyMaintainer {
       const validatorFactor = 0.9 + (validatorHealth / 100) * 0.2; // 0.9 - 1.1
       const effectiveDifficulty = Math.min(
         9,
-        this.config.baseDifficulty * networkFactor * validatorFactor
+        this.config.baseDifficulty * networkFactor * validatorFactor,
       );
 
       // Tính target enemy count dựa trên effective difficulty
@@ -149,7 +149,7 @@ export class EnemyMaintainer {
         baseStats.enemiesPerChunk * (0.7 + (effectiveDifficulty / 9) * 0.6); // 0.7 - 1.3
 
       this.targetEnemyCount = Math.ceil(
-        this.config.chunkCount * adjustedEnemiesPerChunk
+        this.config.chunkCount * adjustedEnemiesPerChunk,
       );
 
       // Giới hạn tối đa
@@ -179,12 +179,6 @@ export class EnemyMaintainer {
       if (this.currentEnemyCount < this.targetEnemyCount) {
         this.spawnOneEnemy(effectiveDifficulty);
       }
-
-      console.log(
-        `[EnemyMaintainer] Current: ${this.currentEnemyCount}/${this.targetEnemyCount} | ` +
-          `Difficulty: ${effectiveDifficulty.toFixed(1)} | ` +
-          `Net: ${networkScore.toFixed(0)} | Val: ${validatorHealth.toFixed(0)}`
-      );
     } catch (error) {
       console.error("[EnemyMaintainer] Error:", error);
       // Fallback: vẫn maintain với base difficulty

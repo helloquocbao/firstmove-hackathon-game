@@ -74,18 +74,19 @@ export default function GamePage() {
   const [isCreatingCharacter, setIsCreatingCharacter] = useState(false);
   const [createCharacterError, setCreateCharacterError] = useState("");
 
+  // Dynamic difficulty info from chain
+  const [difficultyInfo, setDifficultyInfo] = useState({
+    baseDifficulty: 1,
+    effectiveDifficulty: 1,
+    targetEnemyCount: 0,
+    currentEnemyCount: 0,
+    networkStatus: "⚪ Loading...",
+    validatorStatus: "⚪ Loading...",
+  });
+
   useEffect(() => {
     startGame();
-    handletests();
   }, []);
-
-  const handletests = async () => {
-    const txBlock = await suiClient.getTransactionBlock({
-      digest: "B7GqNSUhjSyS6qkSuMH6RgEC4GTetWuCiYMqErwX4kG8",
-      options: { showEvents: true },
-    });
-    console.log(txBlock);
-  };
 
   useEffect(() => {
     const stored = loadPlayState();
@@ -101,6 +102,25 @@ export default function GamePage() {
     const handler = () => setIsKeyFound(true);
     window.addEventListener("game:key-found", handler);
     return () => window.removeEventListener("game:key-found", handler);
+  }, []);
+
+  // Listen for difficulty updates from game
+  useEffect(() => {
+    const handler = (event) => {
+      const info = event.detail;
+      if (info) {
+        setDifficultyInfo({
+          baseDifficulty: info.baseDifficulty ?? 1,
+          effectiveDifficulty: info.effectiveDifficulty ?? 1,
+          targetEnemyCount: info.targetEnemyCount ?? 0,
+          currentEnemyCount: info.currentEnemyCount ?? 0,
+          networkStatus: info.networkStatus ?? "⚪ Unknown",
+          validatorStatus: info.validatorStatus ?? "⚪ Unknown",
+        });
+      }
+    };
+    window.addEventListener("game:difficulty-update", handler);
+    return () => window.removeEventListener("game:difficulty-update", handler);
   }, []);
 
   useEffect(() => {
@@ -454,7 +474,25 @@ export default function GamePage() {
         decoGrid: newDecoGrid,
         worldId: targetWorldId,
         characterHealth: characterHealth || 100,
+        difficulty: 1, // default, will fetch from WorldMap
+        chunkCount: chunkEntries.length,
       };
+
+      // Fetch difficulty from WorldMap object
+      try {
+        const worldObj = await suiClient.getObject({
+          id: targetWorldId,
+          options: { showContent: true },
+        });
+        if (worldObj.data?.content?.dataType === "moveObject") {
+          const worldFields = normalizeMoveFields(worldObj.data.content.fields);
+          const difficulty = parseInt(worldFields.difficulty) || 1;
+          mapData.difficulty = Math.max(1, Math.min(9, difficulty));
+        }
+      } catch (e) {
+        console.warn("Could not fetch world difficulty:", e);
+      }
+
       localStorage.setItem("CUSTOM_MAP", JSON.stringify(mapData));
       startGame(mapData);
       setLoadedChunks(chunkEntries.length);
@@ -932,8 +970,34 @@ export default function GamePage() {
               <span>Attack</span>
               <span>Space</span>
             </div>
+
+            {/* Dynamic Difficulty Info */}
+            <div className="game-info__title">⛓️ Network Status</div>
+            <div className="game-info__card">
+              <span>Network</span>
+              <span>{difficultyInfo.networkStatus}</span>
+            </div>
+            <div className="game-info__card">
+              <span>Validators</span>
+              <span>{difficultyInfo.validatorStatus}</span>
+            </div>
+            <div className="game-info__card">
+              <span>Base Difficulty</span>
+              <span>{difficultyInfo.baseDifficulty}/9</span>
+            </div>
+            <div className="game-info__card">
+              <span>Effective</span>
+              <span>{difficultyInfo.effectiveDifficulty.toFixed(1)}/9</span>
+            </div>
+            <div className="game-info__card">
+              <span>Enemies</span>
+              <span>
+                {difficultyInfo.currentEnemyCount}/
+                {difficultyInfo.targetEnemyCount}
+              </span>
+            </div>
             <div className="game-info__note">
-              Select a world and load the map to start exploring.
+              Difficulty scales with Sui network activity.
             </div>
           </aside>
         </div>

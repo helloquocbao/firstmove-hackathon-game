@@ -23,6 +23,7 @@ import {
   Loader
 } from "lucide-react";
 import { WalletHeader } from "../components";
+import { useRewardBalance } from "../hooks/useRewardBalance";
 import "./Marketplace.css";
 
 type ListingEventFields = {
@@ -60,6 +61,7 @@ export default function Marketplace() {
   const account = useCurrentAccount();
   const { mutateAsync: signAndExecute, isPending } =
     useSignAndExecuteTransaction();
+  const { refetch: refetchBalance } = useRewardBalance();
   const [listings, setListings] = useState<Listing[]>([]);
   const [ownedChunks, setOwnedChunks] = useState<ChunkInfo[]>([]);
   const [priceInputs, setPriceInputs] = useState<Record<string, string>>({});
@@ -253,6 +255,8 @@ export default function Marketplace() {
 
       await refreshListings();
       await loadOwnedChunks();
+      // Delay to allow indexer to sync before refetching balance
+      setTimeout(() => void refetchBalance(), 1500);
       setStatus("✅ Purchase complete! Chunk added to your collection.");
     } catch (error) {
       console.error("Buy failed:", error);

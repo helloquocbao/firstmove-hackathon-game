@@ -8,7 +8,7 @@ import { useBalanceStore } from "../stores";
  */
 export function useRewardBalance() {
   const account = useCurrentAccount();
-  const { balance, isLoading, fetchBalance, reset } = useBalanceStore();
+  const { balance, isLoading, fetchBalance, refetch, reset } = useBalanceStore();
 
   useEffect(() => {
     if (account?.address) {
@@ -18,6 +18,6 @@ export function useRewardBalance() {
     }
   }, [account?.address, fetchBalance, reset]);
 
-  return { balance, isLoading, account };
+  return { balance, isLoading, refetch, account };
 }
 

@@ -10,6 +10,7 @@ interface BalanceState {
   
   // Actions
   fetchBalance: (walletAddress: string) => Promise<void>;
+  refetch: () => Promise<void>;
   reset: () => void;
 }
 
@@ -58,6 +59,42 @@ export const useBalanceStore = create<BalanceState>((set, get) => ({
     } catch (err) {
       console.error("Failed to fetch reward balance:", err);
       set({ balance: 0, isLoading: false, lastFetchedAt: Date.now() });
+    }
+  },
+
+  refetch: async () => {
+    const state = get();
+    if (!state.walletAddress) return;
+    
+    // Clear cache to force refetch
+    set({ lastFetchedAt: null });
+    
+    set({ isLoading: true });
+
+    try {
+      if (!REWARD_COIN_TYPE) {
+        set({ balance: 0, isLoading: false, lastFetchedAt: Date.now() });
+        return;
+      }
+
+      const coins = await suiClient.getCoins({
+        owner: state.walletAddress,
+        coinType: REWARD_COIN_TYPE,
+      });
+
+      const total = coins.data.reduce(
+        (sum, coin) => sum + BigInt(coin.balance),
+        BigInt(0)
+      );
+
+      set({ 
+        balance: Number(total), 
+        isLoading: false, 
+        lastFetchedAt: Date.now() 
+      });
+    } catch (err) {
+      console.error("Failed to refetch reward balance:", err);
+      set({ isLoading: false, lastFetchedAt: Date.now() });
     }
   },
 

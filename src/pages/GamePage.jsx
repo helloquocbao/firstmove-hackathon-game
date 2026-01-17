@@ -23,6 +23,7 @@ import {
 } from "../game/tiles";
 import { User, Gift, Info, X, Copy, RefreshCw, Play, Skull } from "lucide-react";
 import { WalletHeader } from "../components";
+import { useRewardBalance } from "../hooks/useRewardBalance";
 import "./GamePage.css";
 
 const TILE_SIZE = 32;
@@ -35,6 +36,7 @@ export default function GamePage() {
   const account = useCurrentAccount();
   const { mutateAsync: signAndExecute, isPending } =
     useSignAndExecuteTransaction();
+  const { refetch: refetchBalance } = useRewardBalance();
   const [worldId, setWorldId] = useState("");
   const [worldListError, setWorldListError] = useState("");
   const [mapLoadError, setMapLoadError] = useState("");
@@ -1087,6 +1089,8 @@ export default function GamePage() {
           : "Claimed reward successfully!"
       );
       await loadRewardBalance();
+      // Delay to allow indexer to sync before refetching global balance
+      setTimeout(() => void refetchBalance(), 1500);
       await loadCharacter(); // Refresh character stats (daily plays, free plays)
       reloadGameFromStorage(); // Refresh map to clear chests
     } catch (error) {

@@ -29,6 +29,7 @@ import {
 import { WalletHeader } from "../components";
 import "./EditorGame.css";
 import { useWalrusUpload } from "../hooks/useWalrusUpload";
+import { useRewardBalance } from "../hooks/useRewardBalance";
 import { getWalrusImageUrl } from "../lib/helper";
 
 /**
@@ -53,6 +54,7 @@ export default function EditorGame() {
     useSignAndExecuteTransaction();
 
   const { uploadImage, isUploading } = useWalrusUpload();
+  const { refetch: refetchBalance } = useRewardBalance();
 
   const [userId] = useState(() => getOrCreateUserId());
   const [notice, setNotice] = useState<string>("");
@@ -976,7 +978,11 @@ export default function EditorGame() {
           ],
         });
       },
-      () => refreshWorldAndMap({ flyToNewest: true }),
+      () => {
+        refreshWorldAndMap({ flyToNewest: true });
+        // Delay to allow indexer to sync before refetching balance
+        setTimeout(() => void refetchBalance(), 1500);
+      },
     );
   }
 

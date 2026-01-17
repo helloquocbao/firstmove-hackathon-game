@@ -1156,7 +1156,7 @@ export default function EditorGame() {
         <header className="editor-header">
           <div>
             <div className="editor-eyebrow">Skyworld editor</div>
-            <h1 className="editor-title">Stone chunk workshop</h1>
+            <h1 className="editor-title">CHUNK MAP EDITOR</h1>
             <p className="editor-subtitle">
               Carve floating chunks and push updates on-chain.
             </p>

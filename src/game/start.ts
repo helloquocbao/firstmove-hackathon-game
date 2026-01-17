@@ -453,12 +453,12 @@ export function startGame(mapData?: GameMapData) {
             goblin.play(attackAnim);
             goblin.attackTimer = GOBLIN_CONFIG.attackCooldown;
 
-            // Spawn attack hitbox
+            // Spawn attack hitbox - starts from goblin center and extends forward
             wait(0.2, () => {
               if (!goblin.exists()) return;
               const hitbox = add([
-                pos(goblin.pos.x + goblin.facing * 20, goblin.pos.y),
-                area({ shape: new Rect(vec2(0), 18, 18) }),
+                pos(goblin.pos.x + goblin.facing * 10, goblin.pos.y),
+                area({ shape: new Rect(vec2(0), 28, 24) }),
                 anchor("center"),
                 lifespan(0.12),
                 "goblin-attack",
@@ -747,8 +747,8 @@ export function startGame(mapData?: GameMapData) {
 
     function spawnAttackHitbox() {
       add([
-        pos(player.pos.x + player.facing * 20, player.pos.y),
-        area({ shape: new Rect(vec2(1), 10, 20) }),
+        pos(player.pos.x + player.facing * 12, player.pos.y),
+        area({ shape: new Rect(vec2(1), 28, 26) }),
         anchor("center"),
         lifespan(0.1),
         "attack",

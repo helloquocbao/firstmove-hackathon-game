@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { Transaction } from "@mysten/sui/transactions";
 import {
   ConnectButton,
@@ -33,6 +34,13 @@ type ChunkInfo = {
   imageUrl?: string;
 };
 
+// Helper function to truncate addresses
+function truncateAddress(address: string, startLen = 6, endLen = 4): string {
+  if (!address) return "";
+  if (address.length <= startLen + endLen) return address;
+  return `${address.slice(0, startLen)}...${address.slice(-endLen)}`;
+}
+
 export default function Marketplace() {
   const account = useCurrentAccount();
   const { mutateAsync: signAndExecute, isPending } =
@@ -43,6 +51,7 @@ export default function Marketplace() {
   const [isLoading, setIsLoading] = useState(false);
   const [status, setStatus] = useState("");
   const [listingStatus, setListingStatus] = useState("");
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const chunkType = PACKAGE_ID ? `${PACKAGE_ID}::world::ChunkNFT` : "";
 
@@ -128,7 +137,7 @@ export default function Marketplace() {
       setListings(parsed);
     } catch (error) {
       console.error("Failed to load listings:", error);
-      setStatus("Không thể tải danh sách, thử lại sau.");
+      setStatus("Failed to load listings, please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -186,24 +195,24 @@ export default function Marketplace() {
   }
 
   const providerLabel = useMemo(() => {
-    if (!account?.address) return "Chưa kết nối ví";
-    return `${account.address.slice(0, 6)}...${account.address.slice(-4)}`;
+    if (!account?.address) return "Chưa kết nối";
+    return truncateAddress(account.address);
   }, [account?.address]);
 
   async function handleBuy(listing: Listing) {
     if (!account?.address) {
-      setStatus("Kết nối ví trước khi mua.");
+      setStatus("Please connect wallet before buying.");
       return;
     }
 
-    setStatus("Chuẩn bị transaction...");
+    setStatus("Preparing transaction...");
     try {
       const coins = await suiClient.getCoins({
         owner: account.address,
         coinType: REWARD_COIN_TYPE,
       });
       if (coins.data.length === 0) {
-        setStatus("Không có coin để trả. Vui lòng lấy CHUNK từ faucet.");
+        setStatus("No CHUNK coins available. Please get CHUNK from faucet.");
         return;
       }
 
@@ -222,42 +231,38 @@ export default function Marketplace() {
       });
 
       await signAndExecute({ transaction: tx });
-      setStatus("Gửi giao dịch thành công, cập nhật sau.");
-      void refreshListings();
-      void loadOwnedChunks();
+      setStatus("✅ Purchase successful! Refreshing listings...");
+      
+      // Wait a bit for the transaction to be indexed
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      await refreshListings();
+      await loadOwnedChunks();
+      setStatus("✅ Purchase complete! Chunk added to your collection.");
     } catch (error) {
       console.error("Buy failed:", error);
-      setStatus("Lỗi khi mua chunk. Xem console để biết chi tiết.");
+      setStatus("Failed to buy chunk. Check console for details.");
     }
   }
 
-  const cardBackground = (seed: string) => {
-    const hash = seed
-      .split("")
-      .reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    const hue = hash % 360;
-    const hue2 = (hue + 70) % 360;
-    return `linear-gradient(135deg, hsl(${hue}, 100%, 35%), hsl(${hue2}, 70%, 45%))`;
-  };
-
   async function handleListChunk(chunk: ChunkInfo) {
     if (!account?.address) {
-      setListingStatus("Kết nối ví trước khi rao bán.");
+      setListingStatus("Please connect wallet before listing.");
       return;
     }
 
     const priceValue = Number(priceInputs[chunk.chunkId]);
     if (!priceValue || priceValue <= 0) {
-      setListingStatus("Giá phải lớn hơn 0.");
+      setListingStatus("Price must be greater than 0.");
       return;
     }
 
     if (!chunk.worldId) {
-      setListingStatus("Không xác định world ID.");
+      setListingStatus("Cannot determine world ID.");
       return;
     }
 
-    setListingStatus("Đang gửi request...");
+    setListingStatus("Submitting listing...");
     try {
       const tx = new Transaction();
       tx.moveCall({
@@ -270,160 +275,348 @@ export default function Marketplace() {
       });
 
       await signAndExecute({ transaction: tx });
-      setListingStatus("Chunk đã được đăng bán.");
-      void refreshListings();
-      void loadOwnedChunks();
+      setListingStatus("✅ Chunk listed successfully!");
+      
+      // Wait for transaction to be indexed
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      await refreshListings();
+      await loadOwnedChunks();
     } catch (error) {
       console.error("List failed:", error);
-      setListingStatus("Không thể đăng chunk. Kiểm tra console.");
+      setListingStatus("Failed to list chunk. Check console.");
     }
   }
 
-  const ownedSection = (
-    <section className="marketplace-section marketplace-owned">
-      <div className="marketplace-panel__header">
-        <h2>Chunks của bạn</h2>
-        <button onClick={loadOwnedChunks}>Tải lại</button>
-      </div>
-      {listingStatus && (
-        <div className="marketplace-status">{listingStatus}</div>
-      )}
-      {account?.address ? (
-        ownedChunks.length > 0 ? (
-          <div className="flex grid grid-cols-6 gap-4">
-            {ownedChunks.map((chunk) => (
-              <article
-                key={chunk.chunkId}
-                className="marketplace-owned-card col-span-1"
-              >
-                <div>
-                  <img src={chunk?.imageUrl} />
-                </div>
-                <div>
-                  <p className="marketplace-label">Chunk</p>
-                  <p className="marketplace-value">{chunk.chunkId}</p>
-                </div>
-                <div>
-                  <p className="marketplace-label">World</p>
-                  <p className="marketplace-value">{chunk.worldId}</p>
-                </div>
-                <div>
-                  <p className="marketplace-label">Coords</p>
-                  <p className="marketplace-value">
-                    ({chunk.cx ?? "?"}, {chunk.cy ?? "?"})
-                  </p>
-                </div>
-                <div className="marketplace-listing-row">
-                  <input
-                    className="marketplace-price-input"
-                    type="number"
-                    min="1"
-                    value={priceInputs[chunk.chunkId] ?? ""}
-                    onChange={(event) =>
-                      setPriceInputs((prev) => ({
-                        ...prev,
-                        [chunk.chunkId]: event.target.value,
-                      }))
-                    }
-                    placeholder="Giá bán (CHUNK)"
-                  />
-                  <button
-                    className="marketplace-buy-btn"
-                    onClick={() => handleListChunk(chunk)}
-                    disabled={isPending || listedChunkIds.has(chunk.chunkId)}
-                  >
-                    {listedChunkIds.has(chunk.chunkId)
-                      ? "Đã rao"
-                      : "Rao bán chunk"}
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-        ) : (
-          <p className="marketplace-empty">Bạn chưa có chunk nào trong ví.</p>
-        )
-      ) : (
-        <p className="marketplace-empty">Kết nối ví để xem chunk của bạn.</p>
-      )}
-    </section>
-  );
+  async function handleDelist(listing: Listing) {
+    if (!account?.address) {
+      setStatus("Please connect wallet before delisting.");
+      return;
+    }
+
+    setStatus("Delisting chunk...");
+    try {
+      const tx = new Transaction();
+      tx.moveCall({
+        target: `${PACKAGE_ID}::world::cancel_listing`,
+        arguments: [
+          tx.object(listing.worldId),
+          tx.object(listing.chunkId),
+        ],
+      });
+
+      await signAndExecute({ transaction: tx });
+      setStatus("✅ Chunk delisted successfully! Refreshing...");
+      
+      // Wait for transaction to be indexed
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      await refreshListings();
+      await loadOwnedChunks();
+      setStatus("✅ Chunk returned to your collection.");
+    } catch (error) {
+      console.error("Delist failed:", error);
+      setStatus("Failed to delist chunk. Check console for details.");
+    }
+  }
+
+  const cardBackground = (seed: string) => {
+    const hash = seed
+      .split("")
+      .reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    const hue = hash % 360;
+    const hue2 = (hue + 70) % 360;
+    return `linear-gradient(135deg, hsl(${hue}, 60%, 25%), hsl(${hue2}, 50%, 35%))`;
+  };
 
   return (
     <div className="marketplace-page">
-      <section className="marketplace-hero">
-        <div className="marketplace-hero__copy">
-          <p className="marketplace-hero__tag">Marketplace Alpha</p>
-          <h1>Buy &amp; Sell Chunk Lands</h1>
-          <p className="marketplace-hero__subtitle">
-            Every land is an NFT on Sui. List fast, explore others, and claim
-            CHUNK tokens as payment.
-          </p>
-          <div className="marketplace-hero__cta">
-            <button onClick={refreshListings} disabled={isLoading}>
-              {isLoading ? "Đang tải..." : "Cập nhật danh sách"}
-            </button>
-            <ConnectButton />
-          </div>
-        </div>
-        <div className="marketplace-hero__panel">
-          <div className="marketplace-hero__panel-inner">
-            <p>Wallet: {providerLabel}</p>
-            <p>Active listings: {listings.length}</p>
-            <p>Owned chunks: {ownedChunks.length}</p>
-          </div>
-        </div>
-      </section>
+      {/* Animated Background */}
+      <div className="marketplace-bg">
+        <span className="marketplace-bg__sky" />
+        <span className="marketplace-bg__glow" />
+        <span className="marketplace-bg__glow marketplace-bg__glow--secondary" />
+      </div>
 
-      {ownedSection}
+      <div className="marketplace-content">
+        {/* Navigation */}
+        <header className="marketplace-nav">
+          <Link to="/" className="brand">
+            <div className="brand__mark">CW</div>
+            <div>
+              <div className="brand__name">Chunk World</div>
+              <div className="brand__tag">Marketplace</div>
+            </div>
+          </Link>
 
-      <section className="marketplace-panel">
-        <div className="marketplace-panel__header">
-          <h2>Danh sách land đang mở</h2>
-          <button onClick={refreshListings} disabled={isLoading}>
-            {isLoading ? "Đang tải..." : "Tải lại"}
-          </button>
-        </div>
-        {status && <div className="marketplace-status">{status}</div>}
-        {hasListings ? (
-          <div className="marketplace-grid marketplace-grid--tiles">
-            {listings.map((listing) => (
-              <article
-                key={`${listing.chunkId}-${listing.timestamp}`}
-                className="marketplace-card marketplace-card--tile"
+          <nav className="marketplace-nav__links">
+            <Link to="/">Home</Link>
+            <Link to="/editor">Editor</Link>
+            <Link to="/game">Play</Link>
+          </nav>
+
+          <ConnectButton />
+        </header>
+
+        {/* Hero Section */}
+        <section className="marketplace-hero">
+          <div className="marketplace-hero__copy">
+            <div className="marketplace-hero__badge">
+              <span className="marketplace-hero__badge-dot" />
+              <span>Live Marketplace</span>
+            </div>
+
+            <h1>
+              Trade <span className="marketplace-hero__accent">Chunk Lands</span> on Sui
+            </h1>
+
+            <p className="marketplace-hero__subtitle">
+              Every chunk is a unique NFT on Sui blockchain. List your lands, 
+              discover new territories, and earn CHUNK tokens as payment.
+            </p>
+
+            <div className="marketplace-hero__cta">
+              <button
+                className="btn btn--solid"
+                onClick={() => {
+                  setIsModalOpen(true);
+                  void loadOwnedChunks();
+                }}
               >
-                <div
-                  className="marketplace-card__preview"
-                  style={{ backgroundImage: cardBackground(listing.chunkId) }}
-                />
-                <div className="marketplace-card__body">
-                  <p className="marketplace-label">Chunk</p>
-                  <p className="marketplace-value">
-                    {listing.chunkId.slice(0, 12)}…
-                  </p>
-                  <p className="marketplace-label">World</p>
-                  <p className="marketplace-value">
-                    {listing.worldId.slice(0, 12)}…
-                  </p>
-                  <p className="marketplace-label">Price</p>
-                  <p className="marketplace-value">{listing.price} CHUNK</p>
-                </div>
-                <button
-                  className="marketplace-buy-btn"
-                  onClick={() => handleBuy(listing)}
-                  disabled={isPending}
-                >
-                  {isPending ? "Đang xử lý..." : "Mua"}
-                </button>
-              </article>
-            ))}
+                📤 List Your Chunk
+              </button>
+              <button
+                className="btn btn--ghost"
+                onClick={refreshListings}
+                disabled={isLoading}
+              >
+                {isLoading ? "⏳ Loading..." : "🔄 Refresh"}
+              </button>
+            </div>
           </div>
-        ) : (
-          <p className="marketplace-empty">
-            Không tìm thấy chunk nào đang được rao bán hiện tại.
-          </p>
+
+          <div className="marketplace-hero__panel">
+            <div className="marketplace-stats">
+              <div className="marketplace-stats__header">
+                <span className="marketplace-stats__title">Dashboard</span>
+                <span className="marketplace-stats__tag">Sui Testnet</span>
+              </div>
+
+              <div className="marketplace-stats__grid">
+                <div className="marketplace-stat">
+                  <div className="marketplace-stat__label">Active Listings</div>
+                  <div className="marketplace-stat__value marketplace-stat__value--accent">
+                    {listings.length}
+                  </div>
+                </div>
+                <div className="marketplace-stat">
+                  <div className="marketplace-stat__label">Your Chunks</div>
+                  <div className="marketplace-stat__value">
+                    {ownedChunks.length}
+                  </div>
+                </div>
+              </div>
+
+              <div className="marketplace-wallet-info">
+                <div className="marketplace-wallet-info__icon">👛</div>
+                <div className="marketplace-wallet-info__details">
+                  <div className="marketplace-wallet-info__label">Connected Wallet</div>
+                  <div className="marketplace-wallet-info__address">
+                    {account?.address ? truncateAddress(account.address, 10, 8) : "Not connected"}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Your Chunks Modal */}
+        {isModalOpen && (
+          <div className="marketplace-modal-overlay" onClick={() => setIsModalOpen(false)}>
+            <div className="marketplace-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="marketplace-modal__header">
+                <h2 className="marketplace-modal__title">
+                  <span className="marketplace-section__title-icon">🏔️</span>
+                  Your Chunks
+                </h2>
+                <button className="marketplace-modal__close" onClick={() => setIsModalOpen(false)}>
+                  ✕
+                </button>
+              </div>
+
+              {listingStatus && (
+                <div className="marketplace-status">{listingStatus}</div>
+              )}
+
+              <div className="marketplace-modal__body">
+                {account?.address ? (
+                  ownedChunks.length > 0 ? (
+                    <div className="marketplace-grid marketplace-grid--modal">
+                      {ownedChunks.map((chunk) => (
+                        <article key={chunk.chunkId} className="marketplace-owned-card">
+                          <div className="marketplace-owned-card__preview">
+                            {chunk.imageUrl ? (
+                              <img src={chunk.imageUrl} alt={`Chunk ${truncateAddress(chunk.chunkId, 8, 4)}`} />
+                            ) : (
+                              <div className="marketplace-owned-card__preview-placeholder">🏔️</div>
+                            )}
+                            <div className="marketplace-owned-card__coords">
+                              📍 ({chunk.cx ?? "?"}, {chunk.cy ?? "?"})
+                            </div>
+                          </div>
+                          <div className="marketplace-owned-card__body">
+                            <div className="marketplace-owned-card__info">
+                              <div className="marketplace-owned-card__row">
+                                <span className="marketplace-owned-card__label">Chunk ID</span>
+                                <span className="marketplace-owned-card__value" title={chunk.chunkId}>
+                                  {truncateAddress(chunk.chunkId, 8, 6)}
+                                </span>
+                              </div>
+                              <div className="marketplace-owned-card__row">
+                                <span className="marketplace-owned-card__label">World</span>
+                                <span className="marketplace-owned-card__value" title={chunk.worldId}>
+                                  {truncateAddress(chunk.worldId, 8, 6)}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="marketplace-owned-card__actions">
+                              <input
+                                className="marketplace-price-input"
+                                type="number"
+                                min="1"
+                                value={priceInputs[chunk.chunkId] ?? ""}
+                                onChange={(event) =>
+                                  setPriceInputs((prev) => ({
+                                    ...prev,
+                                    [chunk.chunkId]: event.target.value,
+                                  }))
+                                }
+                                placeholder="Price (CHUNK)"
+                              />
+                              <button
+                                className={listedChunkIds.has(chunk.chunkId) ? "btn--secondary" : "btn--primary"}
+                                onClick={() => handleListChunk(chunk)}
+                                disabled={isPending || listedChunkIds.has(chunk.chunkId)}
+                              >
+                                {listedChunkIds.has(chunk.chunkId) ? "✓ Listed" : "📤 List for Sale"}
+                              </button>
+                            </div>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="marketplace-empty">
+                      <div className="marketplace-empty__icon">📦</div>
+                      <p className="marketplace-empty__text">
+                        You don't have any chunks yet. Explore the game to mint your first chunk!
+                      </p>
+                    </div>
+                  )
+                ) : (
+                  <div className="marketplace-empty">
+                    <div className="marketplace-empty__icon">🔗</div>
+                    <p className="marketplace-empty__text">
+                      Connect your wallet to view your chunks
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="marketplace-modal__footer">
+                <button className="btn--ghost" onClick={loadOwnedChunks}>
+                  🔄 Reload Chunks
+                </button>
+              </div>
+            </div>
+          </div>
         )}
-      </section>
+
+        {/* Listings Section */}
+        <section className="marketplace-section">
+          <div className="marketplace-section__header">
+            <h2 className="marketplace-section__title">
+              <span className="marketplace-section__title-icon">🛒</span>
+              Available Listings
+            </h2>
+            <div className="marketplace-section__actions">
+              <button className="btn--ghost" onClick={refreshListings} disabled={isLoading}>
+                {isLoading ? "⏳ Loading..." : "🔄 Refresh"}
+              </button>
+            </div>
+          </div>
+
+          {status && <div className="marketplace-status">{status}</div>}
+
+          {hasListings ? (
+            <div className="marketplace-grid marketplace-grid--listings">
+              {listings.map((listing) => (
+                <article
+                  key={`${listing.chunkId}-${listing.timestamp}`}
+                  className="marketplace-listing-card"
+                >
+                  <div
+                    className="marketplace-listing-card__preview"
+                    style={{ background: cardBackground(listing.chunkId) }}
+                  />
+                  <div className="marketplace-listing-card__body">
+                    <div className="marketplace-listing-card__info">
+                      <div className="marketplace-listing-card__row">
+                        <span className="marketplace-listing-card__label">Chunk</span>
+                        <span className="marketplace-listing-card__value" title={listing.chunkId}>
+                          {truncateAddress(listing.chunkId, 8, 6)}
+                        </span>
+                      </div>
+                      <div className="marketplace-listing-card__row">
+                        <span className="marketplace-listing-card__label">World</span>
+                        <span className="marketplace-listing-card__value" title={listing.worldId}>
+                          {truncateAddress(listing.worldId, 8, 6)}
+                        </span>
+                      </div>
+                      <div className="marketplace-listing-card__row">
+                        <span className="marketplace-listing-card__label">Seller</span>
+                        <span className="marketplace-listing-card__value" title={listing.seller}>
+                          {truncateAddress(listing.seller, 6, 4)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="marketplace-listing-card__price">
+                      <span className="marketplace-listing-card__price-label">Price</span>
+                      <span className="marketplace-listing-card__price-value">
+                        {listing.price} CHUNK
+                      </span>
+                    </div>
+                    {listing.seller === account?.address ? (
+                      <button
+                        className="btn--secondary"
+                        onClick={() => handleDelist(listing)}
+                        disabled={isPending}
+                      >
+                        {isPending ? "⏳ Processing..." : "🔙 Delist"}
+                      </button>
+                    ) : (
+                      <button
+                        className="btn--primary"
+                        onClick={() => handleBuy(listing)}
+                        disabled={isPending}
+                      >
+                        {isPending ? "⏳ Processing..." : "💰 Buy Now"}
+                      </button>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="marketplace-empty">
+              <div className="marketplace-empty__icon">🏜️</div>
+              <p className="marketplace-empty__text">
+                No chunks currently listed for sale. Be the first to list!
+              </p>
+            </div>
+          )}
+        </section>
+      </div>
     </div>
   );
 }

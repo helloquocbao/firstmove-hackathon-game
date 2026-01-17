@@ -1018,34 +1018,6 @@ export default function EditorGame() {
     }
   }
 
-  async function createCharacterOnChain() {
-    if (!WORLD_REGISTRY_ID) {
-      setTxError("Missing world registry id.");
-      return;
-    }
-    if (!characterName.trim()) {
-      setTxError("Character name is required (1-32 chars).");
-      return;
-    }
-
-    await runTx(
-      "Create character",
-      (tx) => {
-        tx.moveCall({
-          target: `${PACKAGE_ID}::world::create_character`,
-          arguments: [
-            tx.object(WORLD_REGISTRY_ID),
-            tx.pure.string(characterName.trim()),
-          ],
-        });
-      },
-      () => {
-        setNotice("Character created!");
-        void loadCharacter();
-      },
-    );
-  }
-
   async function loadRewardCoins() {
     if (!account?.address || !REWARD_COIN_TYPE) return;
     try {

@@ -1031,8 +1031,18 @@ export default function GamePage() {
 
       await signAndExecute({ transaction: tx });
 
-      // Reload character after creation
-      await loadCharacter();
+      setPlayNotice("Character created! Syncing with chain...");
+
+      // Delay to allow indexer to catch up
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+
+      // Reload character after creation with retry
+      let nextId = await loadCharacter();
+      if (!nextId) {
+        // Retry once if not found immediately
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        nextId = await loadCharacter();
+      }
 
       setShowCreateCharacterModal(false);
       setNewCharacterName("");

@@ -26,17 +26,13 @@ export interface DifficultyInfo {
 }
 
 // Base stats theo difficulty (balanced for fun gameplay)
-const DIFFICULTY_STATS = {
-  1: { hp: 2, damage: 5, speed: 35, enemiesPerChunk: 0.5 }, // Very Easy
-  2: { hp: 3, damage: 8, speed: 40, enemiesPerChunk: 0.8 }, // Easy
-  3: { hp: 4, damage: 10, speed: 45, enemiesPerChunk: 1 }, // Normal
-  4: { hp: 5, damage: 12, speed: 50, enemiesPerChunk: 1.2 }, // Medium
-  5: { hp: 6, damage: 15, speed: 55, enemiesPerChunk: 1.5 }, // Hard
-  6: { hp: 8, damage: 18, speed: 60, enemiesPerChunk: 2 }, // Very Hard
-  7: { hp: 10, damage: 22, speed: 65, enemiesPerChunk: 2.5 }, // Expert
-  8: { hp: 15, damage: 28, speed: 70, enemiesPerChunk: 3 }, // Master
-  9: { hp: 20, damage: 35, speed: 75, enemiesPerChunk: 4 }, // Nightmare
-} as const;
+
+interface BaseStats {
+  hp: number;
+  damage: number;
+  speed: number;
+  enemiesPerChunk: number;
+}
 
 export class EnemyMaintainer {
   private client: SuiClient;
@@ -68,12 +64,15 @@ export class EnemyMaintainer {
     );
   }
 
-  private getBaseStats() {
-    const level = Math.max(
-      1,
-      Math.min(9, this.config.baseDifficulty)
-    ) as keyof typeof DIFFICULTY_STATS;
-    return DIFFICULTY_STATS[level];
+  private getBaseStats(): BaseStats {
+    const difficulty = Math.max(1, Math.min(9, this.config.baseDifficulty));
+    const normalized = difficulty / 9;
+    return {
+      hp: 2 + Math.round(normalized * 12),
+      damage: 5 + Math.round(normalized * 18),
+      speed: 30 + Math.round(normalized * 25),
+      enemiesPerChunk: 0.5 + normalized * 3.5,
+    };
   }
 
   // Gọi từ game mỗi khi quái chết hoặc spawn

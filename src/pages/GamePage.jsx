@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ConnectButton,
@@ -35,10 +35,7 @@ export default function GamePage() {
   const { mutateAsync: signAndExecute, isPending } =
     useSignAndExecuteTransaction();
   const [worldId, setWorldId] = useState("");
-  const [worldList, setWorldList] = useState([]);
   const [worldListError, setWorldListError] = useState("");
-  const [isWorldListLoading, setIsWorldListLoading] = useState(false);
-  const [selectedWorldId, setSelectedWorldId] = useState("");
   const [mapLoadError, setMapLoadError] = useState("");
   const [isMapLoading, setIsMapLoading] = useState(false);
   const [loadedChunks, setLoadedChunks] = useState(null);
@@ -53,6 +50,14 @@ export default function GamePage() {
   const [isPlayBusy, setIsPlayBusy] = useState(false);
   const [isClaimBusy, setIsClaimBusy] = useState(false);
   const [isClaimCheckBusy, setIsClaimCheckBusy] = useState(false);
+  const [isGameStarted, setIsGameStarted] = useState(false);
+  const [pendingMapData, setPendingMapData] = useState(null);
+
+  // Pre-start modal (local/off-chain entry)
+  const [showStartModal, setShowStartModal] = useState(true);
+  const [startMode, setStartMode] = useState("player");
+  const [startModalError, setStartModalError] = useState("");
+  const [startChainMode, setStartChainMode] = useState("v1");
 
   // Play mode: 'v1' = free (2 plays/day), 'v2' = paid (3 plays/day, better rewards)
   const [playMode, setPlayMode] = useState("v1");
@@ -94,10 +99,6 @@ export default function GamePage() {
     networkStatus: "⚪ Loading...",
     validatorStatus: "⚪ Loading...",
   });
-
-  useEffect(() => {
-    startGame();
-  }, []);
 
   useEffect(() => {
     const stored = loadPlayState();
@@ -184,16 +185,10 @@ export default function GamePage() {
 
   useEffect(() => {
     void (async () => {
-      const id = await loadWorldId();
-      await loadWorldList(id);
+      // Load world list and auto-load first world
+      await loadWorldListAndMap();
     })();
   }, [WORLD_REGISTRY_ID]);
-
-  useEffect(() => {
-    if (!selectedWorldId && worldId) {
-      setSelectedWorldId(worldId);
-    }
-  }, [worldId, selectedWorldId]);
 
   useEffect(() => {
     void loadRewardBalance();
@@ -209,7 +204,7 @@ export default function GamePage() {
       setCharacterPotential(0);
       setCharacterDailyPlays(0);
       setCharacterFreePlays(0);
-      return;
+      return "";
     }
     try {
       const characterType = `${PACKAGE_ID}::world::CharacterNFT`;
@@ -224,26 +219,23 @@ export default function GamePage() {
         const content = obj.data?.content;
         if (content && content.dataType === "moveObject") {
           const fields = normalizeMoveFields(content.fields);
-          setCharacterId(obj.data?.objectId ?? "");
+          const nextId = obj.data?.objectId ?? "";
+          setCharacterId(nextId);
           setCharacterName(String(fields.name ?? ""));
           setCharacterHealth(parseU32Value(fields.health) ?? 100);
           setCharacterPower(parseU32Value(fields.power) ?? 0);
           setCharacterPotential(parseU32Value(fields.potential) ?? 0);
           setCharacterDailyPlays(parseU32Value(fields.daily_plays) ?? 0);
           setCharacterFreePlays(parseU32Value(fields.free_daily_plays) ?? 0);
+          return nextId;
         }
       }
     } catch (error) {
       console.error("Failed to load character:", error);
     }
+    return "";
   }
 
-  const worldListOptions = useMemo(() => {
-    const ids = new Set();
-    if (worldId) ids.add(worldId);
-    worldList.forEach((id) => ids.add(id));
-    return Array.from(ids);
-  }, [worldId, worldList]);
   const isWalletBusy = isPending || isPlayBusy || isClaimBusy;
 
   async function loadWorldId() {
@@ -285,14 +277,19 @@ export default function GamePage() {
     }
   }
 
-  async function loadWorldList(registryId) {
+  async function loadWorldListAndMap() {
+    setMapLoadError("");
     setWorldListError("");
-    setIsWorldListLoading(true);
+    setIsMapLoading(true);
 
     try {
-      const ids = new Set();
-      if (registryId) ids.add(registryId);
+      const ids = [];
 
+      // First try to get from registry
+      const registryId = await loadWorldId();
+      if (registryId) ids.push(registryId);
+
+      // Then query WorldCreatedEvent for more worlds
       if (PACKAGE_ID) {
         const eventType = `${PACKAGE_ID}::world::WorldCreatedEvent`;
         let cursor = null;
@@ -315,9 +312,9 @@ export default function GamePage() {
               typeof record.world_id === "string"
                 ? record.world_id
                 : typeof record.worldId === "string"
-                ? record.worldId
-                : "";
-            if (id) ids.add(id);
+                  ? record.worldId
+                  : "";
+            if (id && !ids.includes(id)) ids.push(id);
           }
 
           cursor = page.nextCursor ?? null;
@@ -326,11 +323,19 @@ export default function GamePage() {
         }
       }
 
-      setWorldList(Array.from(ids));
+      // Auto-load the first world in the list
+      if (ids.length > 0) {
+        const firstWorldId = ids[0];
+        setWorldId(firstWorldId);
+        setIsMapLoading(false);
+        await loadWorldMap(firstWorldId);
+      } else {
+        setMapLoadError("No worlds found.");
+        setIsMapLoading(false);
+      }
     } catch (error) {
       setWorldListError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsWorldListLoading(false);
+      setIsMapLoading(false);
     }
   }
 
@@ -417,8 +422,8 @@ export default function GamePage() {
         typeof parsed.play_id === "string"
           ? parsed.play_id
           : typeof parsed.play_id === "number"
-          ? String(parsed.play_id)
-          : "";
+            ? String(parsed.play_id)
+            : "";
 
       if (nextPlayId) {
         storePlayState({
@@ -545,17 +550,24 @@ export default function GamePage() {
     }
   }
 
-  function reloadGameFromStorage() {
+  function getStoredMapData() {
     const raw = localStorage.getItem("CUSTOM_MAP");
-    if (!raw) return;
+    if (!raw) return null;
     try {
       const parsed = JSON.parse(raw);
       // Update characterHealth with current value
       parsed.characterHealth = characterHealth || 100;
-      startGame(parsed);
+      return parsed;
     } catch (error) {
       console.error(error);
+      return null;
     }
+  }
+
+  function reloadGameFromStorage() {
+    const parsed = getStoredMapData();
+    if (!parsed) return;
+    startGame(parsed);
   }
 
   async function loadWorldMap(targetWorldId) {
@@ -599,10 +611,15 @@ export default function GamePage() {
         .fill(0)
         .map(() => Array(width).fill(0));
 
-      chunkEntries.forEach((entry, index) => {
+      for (let index = 0; index < chunkEntries.length; index++) {
+        const entry = chunkEntries[index];
         const response = chunkObjects[index];
-        const content = response.data?.content;
-        if (!content || content.dataType !== "moveObject") return;
+        let content = response.data?.content;
+        if (!content || content.dataType !== "moveObject") {
+          content = await fetchListedChunk(targetWorldId, entry.chunkId);
+          console.log("Fetched listed chunk:", content);
+        }
+        if (!content || content.dataType !== "moveObject") continue;
         const fields = normalizeMoveFields(content.fields);
         const tiles = normalizeMoveVector(fields.tiles).map((tile) =>
           normalizeTileId(clampU8(parseU32Value(tile) ?? 0, 255))
@@ -620,7 +637,7 @@ export default function GamePage() {
               decorations[idx] ?? 0;
           }
         }
-      });
+      }
 
       const mapData = {
         tileSize: TILE_SIZE,
@@ -650,7 +667,10 @@ export default function GamePage() {
       }
 
       localStorage.setItem("CUSTOM_MAP", JSON.stringify(mapData));
-      startGame(mapData);
+      setPendingMapData(mapData);
+      if (isGameStarted) {
+        startGame(mapData);
+      }
       setLoadedChunks(chunkEntries.length);
     } catch (error) {
       setMapLoadError(error instanceof Error ? error.message : String(error));
@@ -682,10 +702,15 @@ export default function GamePage() {
     }
   }
 
-  async function handlePlayOnChain() {
+  async function handlePlayOnChain(nextMode) {
     setPlayError("");
     setPlayNotice("");
     setClaimError("");
+    const resolvedMode = typeof nextMode === "string" ? nextMode : null;
+    if (resolvedMode) {
+      setPlayMode(resolvedMode);
+    }
+    const effectiveMode = resolvedMode ?? playMode;
 
     if (!account?.address) {
       setPlayError("Connect wallet first.");
@@ -695,9 +720,8 @@ export default function GamePage() {
       setPlayError("Missing package or reward vault id.");
       return;
     }
-    const activeWorldId = selectedWorldId || worldId;
-    if (!activeWorldId) {
-      setPlayError("Select a world first.");
+    if (!worldId) {
+      setPlayError("World not loaded.");
       return;
     }
 
@@ -708,20 +732,20 @@ export default function GamePage() {
     }
 
     // Check play limits
-    if (playMode === "v1" && characterFreePlays >= 2) {
+    if (effectiveMode === "v1" && characterFreePlays >= 2) {
       setPlayError(
         "Free play limit reached (2/day). Use Play V2 or wait for next epoch."
       );
       return;
     }
-    if (playMode === "v2" && characterDailyPlays >= 3) {
+    if (effectiveMode === "v2" && characterDailyPlays >= 3) {
       setPlayError("Daily play limit reached (3/day). Wait for next epoch.");
       return;
     }
 
     // V2 requires coin, V1 is free
     let playableCoin = null;
-    if (playMode === "v2") {
+    if (effectiveMode === "v2") {
       playableCoin = await getPlayableCoin();
       if (!playableCoin) {
         setPlayError("Need at least 5 CHUNK coin to play V2.");
@@ -739,12 +763,12 @@ export default function GamePage() {
     try {
       const tx = new Transaction();
 
-      if (playMode === "v1") {
+      if (effectiveMode === "v1") {
         // Play V1: Free play (no coin required)
         tx.moveCall({
           target: `${PACKAGE_ID}::world::play_v1`,
           arguments: [
-            tx.object(activeWorldId),
+            tx.object(worldId),
             tx.object(REWARD_VAULT_ID),
             tx.object(characterId),
             tx.pure.vector("u8", sealVector),
@@ -755,7 +779,7 @@ export default function GamePage() {
         tx.moveCall({
           target: `${PACKAGE_ID}::world::play_v2`,
           arguments: [
-            tx.object(activeWorldId),
+            tx.object(worldId),
             tx.object(REWARD_VAULT_ID),
             tx.object(characterId),
             tx.object(playableCoin.coinObjectId),
@@ -797,7 +821,7 @@ export default function GamePage() {
         storePlayState({
           playId: "pending",
           keyHex,
-          worldId: activeWorldId,
+          worldId: worldId,
           found: false,
           digest: result.digest,
         });
@@ -819,8 +843,8 @@ export default function GamePage() {
         typeof parsed.play_id === "string"
           ? parsed.play_id
           : typeof parsed.play_id === "number"
-          ? String(parsed.play_id)
-          : "";
+            ? String(parsed.play_id)
+            : "";
       console.log("nextPlayId", nextPlayId);
       if (!nextPlayId) {
         setPlayError("Play created but play_id not found.");
@@ -829,18 +853,19 @@ export default function GamePage() {
 
       const target = pickKeyTarget();
       if (target) {
-        storePlayTarget({ ...target, worldId: activeWorldId, found: false });
+        storePlayTarget({ ...target, worldId: worldId, found: false });
       }
 
       storePlayState({
         playId: nextPlayId,
         keyHex,
-        worldId: activeWorldId,
+        worldId: worldId,
         found: false,
       });
       setPlayId(nextPlayId);
       setPlayKeyHex(keyHex);
       setIsKeyFound(false);
+      setIsGameStarted(true);
       reloadGameFromStorage();
       setPlayNotice(
         target
@@ -853,6 +878,58 @@ export default function GamePage() {
     } finally {
       setIsPlayBusy(false);
     }
+  }
+
+  async function handleStartModalAction() {
+    setStartModalError("");
+    if (startMode === "player") {
+      if (isMapLoading) {
+        setStartModalError("World is still loading.");
+        return;
+      }
+      const nextMapData = pendingMapData ?? getStoredMapData();
+      if (!nextMapData) {
+        setStartModalError("World not ready yet.");
+        return;
+      }
+      setIsGameStarted(true);
+      setShowStartModal(false);
+      startGame(nextMapData);
+      return;
+    }
+
+    if (startMode === "resume") {
+      const nextMapData = pendingMapData ?? getStoredMapData();
+      if (!nextMapData) {
+        setStartModalError("World not ready yet.");
+        return;
+      }
+      setIsGameStarted(true);
+      setShowStartModal(false);
+      startGame(nextMapData);
+      return;
+    }
+
+    if (!account?.address) {
+      setStartModalError("Connect wallet to play on-chain.");
+      return;
+    }
+    const resolvedCharacterId = characterId || (await loadCharacter());
+    if (!resolvedCharacterId) {
+      setStartModalError("Create a character first.");
+      setShowCreateCharacterModal(true);
+      return;
+    }
+    if (startChainMode === "v1" && characterFreePlays >= 2) {
+      setStartModalError("Free play limit reached (2/day).");
+      return;
+    }
+    if (startChainMode === "v2" && characterDailyPlays >= 3) {
+      setStartModalError("Daily play limit reached (3/day).");
+      return;
+    }
+    setShowStartModal(false);
+    void handlePlayOnChain(startChainMode);
   }
 
   async function handleClaimOnChain() {
@@ -876,9 +953,8 @@ export default function GamePage() {
       return;
     }
 
-    const activeWorldId = selectedWorldId || worldId;
-    if (!activeWorldId) {
-      setClaimError("Select a world first.");
+    if (!worldId) {
+      setClaimError("World not loaded.");
       return;
     }
 
@@ -889,7 +965,7 @@ export default function GamePage() {
       tx.moveCall({
         target: `${PACKAGE_ID}::world::claim_reward`,
         arguments: [
-          tx.object(activeWorldId),
+          tx.object(worldId),
           tx.object(REWARD_VAULT_ID),
           tx.object(characterId),
           tx.object(RANDOM_OBJECT_ID),
@@ -912,8 +988,8 @@ export default function GamePage() {
         typeof parsed.reward === "string"
           ? parsed.reward
           : typeof parsed.reward === "number"
-          ? String(parsed.reward)
-          : "";
+            ? String(parsed.reward)
+            : "";
 
       resetPlayState(
         rewardValue ? `Claimed ${rewardValue} CHUNK.` : "Claimed reward."
@@ -956,14 +1032,6 @@ export default function GamePage() {
     } finally {
       setIsClaimCheckBusy(false);
     }
-  }
-
-  function handleLoadWorld() {
-    if (!selectedWorldId) {
-      setMapLoadError("Select a world to load.");
-      return;
-    }
-    void loadWorldMap(selectedWorldId);
   }
 
   async function handleCreateCharacter() {
@@ -1009,6 +1077,10 @@ export default function GamePage() {
       setIsCreatingCharacter(false);
     }
   }
+
+  const mapReady =
+    !isMapLoading && Boolean(pendingMapData ?? getStoredMapData());
+  const hasPendingPlay = Boolean(playId);
 
   return (
     <div className="game-page">
@@ -1061,6 +1133,12 @@ export default function GamePage() {
         <div className="game-stage">
           <div className="game-frame">
             <canvas id="game" />
+            {isMapLoading && (
+              <div className="game-loading-overlay">
+                <div className="game-loading-spinner" />
+                <div className="game-loading-text">Loading world...</div>
+              </div>
+            )}
           </div>
 
           <aside
@@ -1069,32 +1147,9 @@ export default function GamePage() {
             <div className="game-info__title flex justify-between items-center">
               <span className="font-bold">MISSION</span>
             </div>
-            <div className="game-field">
-              <label>World id</label>
-              <select
-                value={selectedWorldId}
-                onChange={(event) => setSelectedWorldId(event.target.value)}
-                disabled={isWorldListLoading}
-              >
-                <option value="">
-                  {worldListOptions.length > 0
-                    ? "Select world"
-                    : "No worlds found"}
-                </option>
-                {worldListOptions.map((id) => (
-                  <option key={id} value={id}>
-                    {id}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <button
-              className="game-btn game-btn--primary"
-              onClick={handleLoadWorld}
-              disabled={isMapLoading || !selectedWorldId}
-            >
-              {isMapLoading ? "Loading..." : "Load world"}
-            </button>
+            {isMapLoading && (
+              <div className="game-info__note">Loading world...</div>
+            )}
             {loadedChunks !== null && (
               <div className="game-info__note">
                 Loaded {loadedChunks} chunks.
@@ -1258,7 +1313,7 @@ export default function GamePage() {
             </div>
             <button
               className="game-btn game-btn--primary"
-              onClick={handlePlayOnChain}
+              onClick={() => handlePlayOnChain()}
               disabled={isWalletBusy || !account?.address}
             >
               {isPlayBusy
@@ -1481,7 +1536,7 @@ export default function GamePage() {
                   storePlayState({
                     playId: restorePlayId,
                     keyHex: restoreKeyHex,
-                    worldId: restoreWorldId || selectedWorldId || worldId,
+                    worldId: restoreWorldId || worldId,
                     found: false,
                   });
                   setPlayId(restorePlayId);
@@ -1495,6 +1550,166 @@ export default function GamePage() {
                 disabled={!restorePlayId || !restoreKeyHex}
               >
                 Restore
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pre-start Modal */}
+      {showStartModal && (
+        <div className="game-modal-overlay game-modal-overlay--start">
+          <div className="game-modal">
+            <div className="game-modal__header">
+              <h2>Start Run</h2>
+              <button
+                className="game-modal__close"
+                onClick={() => setShowStartModal(false)}
+              >
+                X
+              </button>
+            </div>
+            <div className="game-modal__body">
+              <p>Choose your entry mode before the game begins.</p>
+              {!mapReady && (
+                <div className="game-start-loading">
+                  <div className="game-loading-spinner" />
+                  <div className="game-loading-text">Loading world...</div>
+                </div>
+              )}
+              <div className="game-start-options">
+                <label
+                  className={`game-start-option ${
+                    startMode === "player" ? "active" : ""
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="startMode"
+                    value="player"
+                    checked={startMode === "player"}
+                    onChange={(e) => setStartMode(e.target.value)}
+                    disabled={!mapReady}
+                  />
+                  <div>
+                    <div className="game-start-option__title">Player</div>
+                    <div className="game-start-option__note">
+                      Off-chain practice run.
+                    </div>
+                  </div>
+                </label>
+                {hasPendingPlay && (
+                  <label
+                    className={`game-start-option ${
+                      startMode === "resume" ? "active" : ""
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="startMode"
+                      value="resume"
+                      checked={startMode === "resume"}
+                      onChange={(e) => setStartMode(e.target.value)}
+                      disabled={!mapReady}
+                    />
+                    <div>
+                      <div className="game-start-option__title">
+                        Resume Key
+                      </div>
+                      <div className="game-start-option__note">
+                        Continue your unclaimed play (#{playId}).
+                      </div>
+                    </div>
+                  </label>
+                )}
+                <label
+                  className={`game-start-option ${
+                    startMode === "chain" ? "active" : ""
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="startMode"
+                    value="chain"
+                    checked={startMode === "chain"}
+                    onChange={(e) => setStartMode(e.target.value)}
+                    disabled={!mapReady}
+                  />
+                  <div>
+                    <div className="game-start-option__title">On-chain</div>
+                    <div className="game-start-option__note">
+                      Choose V1 or V2 to start.
+                    </div>
+                  </div>
+                </label>
+                {startMode === "chain" && (
+                  <div className="game-start-chain">
+                    <label
+                      className={`game-start-option ${
+                        startChainMode === "v1" ? "active" : ""
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="startChainMode"
+                        value="v1"
+                        checked={startChainMode === "v1"}
+                        onChange={(e) => setStartChainMode(e.target.value)}
+                        disabled={!mapReady}
+                      />
+                      <div>
+                        <div className="game-start-option__title">V1</div>
+                        <div className="game-start-option__note">
+                          Free play ({characterFreePlays}/2).
+                        </div>
+                      </div>
+                    </label>
+                    <label
+                      className={`game-start-option ${
+                        startChainMode === "v2" ? "active" : ""
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="startChainMode"
+                        value="v2"
+                        checked={startChainMode === "v2"}
+                        onChange={(e) => setStartChainMode(e.target.value)}
+                        disabled={!mapReady}
+                      />
+                      <div>
+                        <div className="game-start-option__title">V2</div>
+                        <div className="game-start-option__note">
+                          Paid play ({characterDailyPlays}/3).
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+                )}
+              </div>
+              {startModalError && (
+                <div className="game-info__error">{startModalError}</div>
+              )}
+            </div>
+            <div className="game-modal__footer">
+              <button
+                className="game-btn"
+                onClick={() => setShowStartModal(false)}
+              >
+                Close
+              </button>
+              <button
+                className="game-btn game-btn--primary"
+                onClick={handleStartModalAction}
+                disabled={
+                  !mapReady || (startMode === "chain" && isWalletBusy)
+                }
+              >
+                {startMode === "player"
+                  ? "Player"
+                  : startMode === "resume"
+                    ? "Resume"
+                    : "Play On-chain"}
               </button>
             </div>
           </div>
@@ -1541,16 +1756,20 @@ function extractObjectId(value) {
   if (!value || typeof value !== "object") return "";
 
   const record = value;
+  if (typeof record.bytes === "string") return record.bytes;
   if (typeof record.id === "string") return record.id;
   if (record.id && typeof record.id === "object") {
     const nested = record.id;
+    if (typeof nested.bytes === "string") return nested.bytes;
     if (typeof nested.id === "string") return nested.id;
   }
   if (record.fields && typeof record.fields === "object") {
     const fields = record.fields;
+    if (typeof fields.bytes === "string") return fields.bytes;
     if (typeof fields.id === "string") return fields.id;
     if (fields.id && typeof fields.id === "object") {
       const nested = fields.id;
+      if (typeof nested.bytes === "string") return nested.bytes;
       if (typeof nested.id === "string") return nested.id;
     }
   }
@@ -1622,12 +1841,12 @@ function matchesPlayId(parsedJson, targetPlayId) {
     typeof record.play_id === "string"
       ? record.play_id
       : typeof record.play_id === "number"
-      ? String(record.play_id)
-      : typeof record.playId === "string"
-      ? record.playId
-      : typeof record.playId === "number"
-      ? String(record.playId)
-      : "";
+        ? String(record.play_id)
+        : typeof record.playId === "string"
+          ? record.playId
+          : typeof record.playId === "number"
+            ? String(record.playId)
+            : "";
   return candidate === targetPlayId;
 }
 
@@ -1658,4 +1877,97 @@ async function hasRewardBeenClaimed(targetPlayId) {
   }
 
   return false;
+}
+
+async function fetchListedChunk(worldId, chunkId) {
+  if (!PACKAGE_ID || !worldId || !chunkId) return null;
+  const directName = {
+    type: `${PACKAGE_ID}::world::ListingKey`,
+    value: { chunk_id: chunkId },
+  };
+  const directContent = await loadListingContent(worldId, directName);
+  if (directContent) return directContent;
+
+  const wrappedName = {
+    type: `${PACKAGE_ID}::world::ListingKey`,
+    value: { chunk_id: { id: chunkId } },
+  };
+  const wrappedContent = await loadListingContent(worldId, wrappedName);
+  if (wrappedContent) return wrappedContent;
+
+  const bytesName = {
+    type: `${PACKAGE_ID}::world::ListingKey`,
+    value: { chunk_id: { bytes: chunkId } },
+  };
+  const bytesContent = await loadListingContent(worldId, bytesName);
+  if (bytesContent) return bytesContent;
+
+  const wrappedBytesName = {
+    type: `${PACKAGE_ID}::world::ListingKey`,
+    value: { chunk_id: { id: { bytes: chunkId } } },
+  };
+  const wrappedBytesContent = await loadListingContent(
+    worldId,
+    wrappedBytesName
+  );
+  if (wrappedBytesContent) return wrappedBytesContent;
+
+  let cursor = null;
+  let hasNextPage = true;
+
+  while (hasNextPage) {
+    const page = await suiClient.getDynamicFields({
+      parentId: worldId,
+      cursor: cursor ?? undefined,
+      limit: 200,
+    });
+
+    for (const field of page.data ?? []) {
+      if (!field?.name?.type || !field.name.type.includes("ListingKey"))
+        continue;
+      const candidateId = extractListingChunkId(field.name.value);
+      if (candidateId && candidateId === chunkId) {
+        return await loadListingContent(worldId, field.name);
+      }
+    }
+
+    cursor = page.nextCursor ?? null;
+    hasNextPage = page.hasNextPage;
+  }
+
+  return null;
+}
+
+async function loadListingContent(worldId, fieldName) {
+  try {
+    const fieldObject = await suiClient.getDynamicFieldObject({
+      parentId: worldId,
+      name: fieldName,
+    });
+    const content = fieldObject.data?.content;
+    if (!content || content.dataType !== "moveObject") return null;
+    const listingFields = normalizeMoveFields(content.fields);
+    const chunk = listingFields.chunk;
+    if (!chunk) return null;
+    return {
+      dataType: "moveObject",
+      fields: normalizeMoveFields(chunk),
+    };
+  } catch (error) {
+    return null;
+  }
+}
+
+function extractListingChunkId(value) {
+  const fields = normalizeMoveFields(value);
+  const raw = fields.chunk_id ?? fields.chunkId;
+  const extracted = extractObjectId(raw);
+  if (extracted) return extracted;
+  if (typeof raw === "string") return raw;
+  if (raw && typeof raw === "object") {
+    const rawFields = normalizeMoveFields(raw);
+    if (typeof rawFields.bytes === "string") return rawFields.bytes;
+  }
+  const fallback = extractObjectId(fields);
+  return fallback || "";
 }

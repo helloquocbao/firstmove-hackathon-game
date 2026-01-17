@@ -1,0 +1,746 @@
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { Transaction } from "@mysten/sui/transactions";
+import {
+  ConnectButton,
+  useCurrentAccount,
+  useSignAndExecuteTransaction,
+} from "@mysten/dapp-kit";
+import { PACKAGE_ID, REWARD_COIN_TYPE } from "../chain/config";
+import { suiClient } from "../chain/suiClient";
+import "./Marketplace.css";
+
+type ListingEventFields = {
+  world_id?: string;
+  chunk_id?: string;
+  seller?: string;
+  price?: number | string;
+};
+
+type Listing = {
+  worldId: string;
+  chunkId: string;
+  seller: string;
+  price: number;
+  timestamp: number;
+};
+
+type ChunkInfo = {
+  chunkId: string;
+  chunkObjectId: string;
+  worldId: string;
+  cx?: number;
+  cy?: number;
+  imageUrl?: string;
+};
+
+// Helper function to truncate addresses
+function truncateAddress(address: string, startLen = 6, endLen = 4): string {
+  if (!address) return "";
+  if (address.length <= startLen + endLen) return address;
+  return `${address.slice(0, startLen)}...${address.slice(-endLen)}`;
+}
+
+export default function Marketplace() {
+  const account = useCurrentAccount();
+  const { mutateAsync: signAndExecute, isPending } =
+    useSignAndExecuteTransaction();
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [ownedChunks, setOwnedChunks] = useState<ChunkInfo[]>([]);
+  const [priceInputs, setPriceInputs] = useState<Record<string, string>>({});
+  const [isLoading, setIsLoading] = useState(false);
+  const [status, setStatus] = useState("");
+  const [listingStatus, setListingStatus] = useState("");
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [rewardBalance, setRewardBalance] = useState(0);
+
+  const chunkType = PACKAGE_ID ? `${PACKAGE_ID}::world::ChunkNFT` : "";
+
+  useEffect(() => {
+    async function fetchBalance() {
+      if (!account?.address || !REWARD_COIN_TYPE) {
+        setRewardBalance(0);
+        return;
+      }
+      try {
+        const coins = await suiClient.getCoins({
+          owner: account.address,
+          coinType: REWARD_COIN_TYPE,
+        });
+        const total = coins.data.reduce(
+          (sum, coin) => sum + BigInt(coin.balance),
+          BigInt(0),
+        );
+        // DECIMALS = 0 in reward_coin.move, so no division needed
+        setRewardBalance(Number(total));
+      } catch (err) {
+        console.error("Failed to fetch reward balance:", err);
+        setRewardBalance(0);
+      }
+    }
+    fetchBalance();
+  }, [account?.address]);
+
+  useEffect(() => {
+    void refreshListings();
+    void loadOwnedChunks();
+  }, [account?.address]);
+
+  const listedChunkIds = useMemo(
+    () => new Set(listings.map((item) => item.chunkId)),
+    [listings],
+  );
+  const hasListings = listings.length > 0;
+
+  async function refreshListings() {
+    if (!PACKAGE_ID) return;
+    setIsLoading(true);
+    try {
+      const listedType = `${PACKAGE_ID}::world::ChunkListedEvent`;
+      const soldType = `${PACKAGE_ID}::world::ChunkSoldEvent`;
+      const delistedType = `${PACKAGE_ID}::world::ChunkDelistedEvent`;
+
+      const [listedPage, soldPage, delistedPage] = await Promise.all([
+        suiClient.queryEvents({
+          query: { MoveEventType: listedType },
+          order: "descending",
+          limit: 100,
+        }),
+        suiClient.queryEvents({
+          query: { MoveEventType: soldType },
+          order: "descending",
+          limit: 100,
+        }),
+        suiClient.queryEvents({
+          query: { MoveEventType: delistedType },
+          order: "descending",
+          limit: 100,
+        }),
+      ]);
+
+      const closedIds = new Set<string>();
+      [...soldPage.data, ...delistedPage.data].forEach((event) => {
+        const parsed = event.parsedJson as Record<string, unknown>;
+        const candidate =
+          typeof parsed.chunk_id === "string"
+            ? parsed.chunk_id
+            : typeof parsed.chunkId === "string"
+              ? parsed.chunkId
+              : "";
+        if (candidate) {
+          closedIds.add(candidate);
+        }
+      });
+
+      const parsed = listedPage.data
+        .map((event) => {
+          const detail = event.parsedJson as ListingEventFields;
+          const chunkId =
+            typeof detail.chunk_id === "string"
+              ? detail.chunk_id
+              : typeof detail.chunkId === "string"
+                ? detail.chunkId
+                : "";
+          const worldId =
+            typeof detail.world_id === "string"
+              ? detail.world_id
+              : typeof detail.worldId === "string"
+                ? detail.worldId
+                : "";
+          const price = Number(detail.price ?? 0);
+          if (!chunkId || !worldId || !price) return null;
+          return {
+            chunkId,
+            worldId,
+            price,
+            seller: detail.seller || "unknown",
+            timestamp: event.timestampMs ?? Date.now(),
+          } satisfies Listing;
+        })
+        .filter((item): item is Listing => Boolean(item))
+        .filter((item) => !closedIds.has(item.chunkId));
+      console.log(`parsed`, parsed);
+      setListings(parsed);
+    } catch (error) {
+      console.error("Failed to load listings:", error);
+      setStatus("Failed to load listings, please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function loadOwnedChunks() {
+    if (!account?.address || !chunkType) {
+      setOwnedChunks([]);
+      return;
+    }
+
+    try {
+      const response = await suiClient.getOwnedObjects({
+        owner: account.address,
+        filter: { StructType: chunkType },
+        options: { showContent: true },
+      });
+
+      const parsed = response.data
+        .map((item) => {
+          const content = item.data?.content;
+          if (!content || content.dataType !== "moveObject") {
+            return null;
+          }
+          const objectId = item.data?.objectId ?? "";
+          if (!objectId) return null;
+          const fields = content.fields as Record<string, unknown>;
+          const worldId = extractObjectId(fields.world_id ?? fields.worldId);
+          const cx =
+            typeof fields.cx === "number" ? fields.cx : Number(fields.cx ?? 0);
+          const cy =
+            typeof fields.cy === "number" ? fields.cy : Number(fields.cy ?? 0);
+          const imageUrl =
+            typeof fields.image_url === "string" ? fields.image_url : "";
+          return {
+            worldId,
+            chunkId: objectId,
+            chunkObjectId: objectId,
+            cx,
+            cy,
+            imageUrl,
+          } satisfies ChunkInfo;
+        })
+        .filter((chunk): chunk is ChunkInfo => Boolean(chunk));
+
+      setOwnedChunks(parsed);
+      const defaults = parsed.reduce<Record<string, string>>((acc, chunk) => {
+        if (!acc[chunk.chunkId]) acc[chunk.chunkId] = "";
+        return acc;
+      }, {});
+      setPriceInputs((prev) => ({ ...defaults, ...prev }));
+    } catch (error) {
+      console.error("Failed to load chunks:", error);
+    }
+  }
+
+  const providerLabel = useMemo(() => {
+    if (!account?.address) return "Chưa kết nối";
+    return truncateAddress(account.address);
+  }, [account?.address]);
+
+  async function handleBuy(listing: Listing) {
+    if (!account?.address) {
+      setStatus("Please connect wallet before buying.");
+      return;
+    }
+
+    setStatus("Preparing transaction...");
+    try {
+      const coins = await suiClient.getCoins({
+        owner: account.address,
+        coinType: REWARD_COIN_TYPE,
+      });
+      if (coins.data.length === 0) {
+        setStatus("No CHUNK coins available. Please get CHUNK from faucet.");
+        return;
+      }
+
+      const coin =
+        coins.data.find((c) => BigInt(c.balance) >= BigInt(listing.price)) ??
+        coins.data[0];
+
+      const tx = new Transaction();
+      tx.moveCall({
+        target: `${PACKAGE_ID}::world::buy_chunk`,
+        arguments: [
+          tx.object(listing.worldId),
+          tx.object(listing.chunkId),
+          tx.object(coin.coinObjectId),
+        ],
+      });
+
+      await signAndExecute({ transaction: tx });
+      setStatus("✅ Purchase successful! Refreshing listings...");
+
+      // Wait a bit for the transaction to be indexed
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      await refreshListings();
+      await loadOwnedChunks();
+      setStatus("✅ Purchase complete! Chunk added to your collection.");
+    } catch (error) {
+      console.error("Buy failed:", error);
+      setStatus("Failed to buy chunk. Check console for details.");
+    }
+  }
+
+  async function handleListChunk(chunk: ChunkInfo) {
+    if (!account?.address) {
+      setListingStatus("Please connect wallet before listing.");
+      return;
+    }
+
+    const priceValue = Number(priceInputs[chunk.chunkId]);
+    if (!priceValue || priceValue <= 0) {
+      setListingStatus("Price must be greater than 0.");
+      return;
+    }
+
+    if (!chunk.worldId) {
+      setListingStatus("Cannot determine world ID.");
+      return;
+    }
+
+    setListingStatus("Submitting listing...");
+    try {
+      const tx = new Transaction();
+      tx.moveCall({
+        target: `${PACKAGE_ID}::world::list_chunk`,
+        arguments: [
+          tx.object(chunk.worldId),
+          tx.object(chunk.chunkObjectId),
+          tx.pure("u64", priceValue),
+        ],
+      });
+
+      await signAndExecute({ transaction: tx });
+      setListingStatus("✅ Chunk listed successfully!");
+
+      // Wait for transaction to be indexed
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      await refreshListings();
+      await loadOwnedChunks();
+    } catch (error) {
+      console.error("List failed:", error);
+      setListingStatus("Failed to list chunk. Check console.");
+    }
+  }
+
+  async function handleDelist(listing: Listing) {
+    if (!account?.address) {
+      setStatus("Please connect wallet before delisting.");
+      return;
+    }
+
+    setStatus("Delisting chunk...");
+    try {
+      const tx = new Transaction();
+      tx.moveCall({
+        target: `${PACKAGE_ID}::world::cancel_listing`,
+        arguments: [tx.object(listing.worldId), tx.object(listing.chunkId)],
+      });
+
+      await signAndExecute({ transaction: tx });
+      setStatus("✅ Chunk delisted successfully! Refreshing...");
+
+      // Wait for transaction to be indexed
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      await refreshListings();
+      await loadOwnedChunks();
+      setStatus("✅ Chunk returned to your collection.");
+    } catch (error) {
+      console.error("Delist failed:", error);
+      setStatus("Failed to delist chunk. Check console for details.");
+    }
+  }
+
+  const cardBackground = (seed: string) => {
+    const hash = seed
+      .split("")
+      .reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    const hue = hash % 360;
+    const hue2 = (hue + 70) % 360;
+    return `linear-gradient(135deg, hsl(${hue}, 60%, 25%), hsl(${hue2}, 50%, 35%))`;
+  };
+
+  return (
+    <div className="marketplace-page">
+      {/* Animated Background */}
+      <div className="marketplace-bg">
+        <span className="marketplace-bg__sky" />
+        <span className="marketplace-bg__glow" />
+        <span className="marketplace-bg__glow marketplace-bg__glow--secondary" />
+      </div>
+
+      <div className="marketplace-content">
+        {/* Navigation */}
+        <header className="marketplace-nav">
+          <Link to="/" className="brand">
+            <div className="brand__mark">CW</div>
+            <div>
+              <div className="brand__name">Chunk World</div>
+              <div className="brand__tag">Marketplace</div>
+            </div>
+          </Link>
+
+          <nav className="marketplace-nav__links">
+            <Link to="/">Home</Link>
+            <Link to="/editor">Editor</Link>
+            <Link to="/game">Play</Link>
+          </nav>
+
+          <div className="header-right">
+            {account && (
+              <div className="reward-balance">
+                <span className="reward-balance__icon">
+                  <img
+                    alt="icon"
+                    className="w-4 h-4"
+                    src="https://ik.imagekit.io/huubao/chunk_coin.png?updatedAt=1768641987539"
+                  />
+                </span>
+                <span className="reward-balance__value">
+                  {rewardBalance.toLocaleString()}
+                </span>
+                <span className="reward-balance__label">CHUNK</span>
+              </div>
+            )}
+            <ConnectButton />
+          </div>
+        </header>
+
+        {/* Hero Section */}
+        <section className="marketplace-hero">
+          <div className="marketplace-hero__copy">
+            <div className="marketplace-hero__badge">
+              <span className="marketplace-hero__badge-dot" />
+              <span>Live Marketplace</span>
+            </div>
+
+            <h1>
+              Trade{" "}
+              <span className="marketplace-hero__accent">Chunk Lands</span> on
+              Sui
+            </h1>
+
+            <p className="marketplace-hero__subtitle">
+              Every chunk is a unique NFT on Sui blockchain. List your lands,
+              discover new territories, and earn CHUNK tokens as payment.
+            </p>
+
+            <div className="marketplace-hero__cta">
+              <button
+                className="btn btn--solid"
+                onClick={() => {
+                  setIsModalOpen(true);
+                  void loadOwnedChunks();
+                }}
+              >
+                📤 List Your Chunk
+              </button>
+              <button
+                className="btn btn--ghost"
+                onClick={refreshListings}
+                disabled={isLoading}
+              >
+                {isLoading ? "⏳ Loading..." : "🔄 Refresh"}
+              </button>
+            </div>
+          </div>
+
+          <div className="marketplace-hero__panel">
+            <div className="marketplace-stats">
+              <div className="marketplace-stats__header">
+                <span className="marketplace-stats__title">Dashboard</span>
+                <span className="marketplace-stats__tag">Sui Testnet</span>
+              </div>
+
+              <div className="marketplace-stats__grid">
+                <div className="marketplace-stat">
+                  <div className="marketplace-stat__label">Active Listings</div>
+                  <div className="marketplace-stat__value marketplace-stat__value--accent">
+                    {listings.length}
+                  </div>
+                </div>
+                <div className="marketplace-stat">
+                  <div className="marketplace-stat__label">Your Chunks</div>
+                  <div className="marketplace-stat__value">
+                    {ownedChunks.length}
+                  </div>
+                </div>
+              </div>
+
+              <div className="marketplace-wallet-info">
+                <div className="marketplace-wallet-info__icon">👛</div>
+                <div className="marketplace-wallet-info__details">
+                  <div className="marketplace-wallet-info__label">
+                    Connected Wallet
+                  </div>
+                  <div className="marketplace-wallet-info__address">
+                    {account?.address
+                      ? truncateAddress(account.address, 10, 8)
+                      : "Not connected"}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Your Chunks Modal */}
+        {isModalOpen && (
+          <div
+            className="marketplace-modal-overlay"
+            onClick={() => setIsModalOpen(false)}
+          >
+            <div
+              className="marketplace-modal"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="marketplace-modal__header">
+                <h2 className="marketplace-modal__title">
+                  <span className="marketplace-section__title-icon">🏔️</span>
+                  Your Chunks
+                </h2>
+                <button
+                  className="marketplace-modal__close"
+                  onClick={() => setIsModalOpen(false)}
+                >
+                  ✕
+                </button>
+              </div>
+
+              {listingStatus && (
+                <div className="marketplace-status">{listingStatus}</div>
+              )}
+
+              <div className="marketplace-modal__body">
+                {account?.address ? (
+                  ownedChunks.length > 0 ? (
+                    <div className="marketplace-grid marketplace-grid--modal">
+                      {ownedChunks.map((chunk) => (
+                        <article
+                          key={chunk.chunkId}
+                          className="marketplace-owned-card"
+                        >
+                          <div className="marketplace-owned-card__preview">
+                            {chunk.imageUrl ? (
+                              <img
+                                src={chunk.imageUrl}
+                                alt={`Chunk ${truncateAddress(chunk.chunkId, 8, 4)}`}
+                              />
+                            ) : (
+                              <div className="marketplace-owned-card__preview-placeholder">
+                                🏔️
+                              </div>
+                            )}
+                            <div className="marketplace-owned-card__coords">
+                              📍 ({chunk.cx ?? "?"}, {chunk.cy ?? "?"})
+                            </div>
+                          </div>
+                          <div className="marketplace-owned-card__body">
+                            <div className="marketplace-owned-card__info">
+                              <div className="marketplace-owned-card__row">
+                                <span className="marketplace-owned-card__label">
+                                  Chunk ID
+                                </span>
+                                <span
+                                  className="marketplace-owned-card__value"
+                                  title={chunk.chunkId}
+                                >
+                                  {truncateAddress(chunk.chunkId, 8, 6)}
+                                </span>
+                              </div>
+                              <div className="marketplace-owned-card__row">
+                                <span className="marketplace-owned-card__label">
+                                  World
+                                </span>
+                                <span
+                                  className="marketplace-owned-card__value"
+                                  title={chunk.worldId}
+                                >
+                                  {truncateAddress(chunk.worldId, 8, 6)}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="marketplace-owned-card__actions">
+                              <input
+                                className="marketplace-price-input"
+                                type="number"
+                                min="1"
+                                value={priceInputs[chunk.chunkId] ?? ""}
+                                onChange={(event) =>
+                                  setPriceInputs((prev) => ({
+                                    ...prev,
+                                    [chunk.chunkId]: event.target.value,
+                                  }))
+                                }
+                                placeholder="Price (CHUNK)"
+                              />
+                              <button
+                                className={
+                                  listedChunkIds.has(chunk.chunkId)
+                                    ? "btn--secondary"
+                                    : "btn--primary"
+                                }
+                                onClick={() => handleListChunk(chunk)}
+                                disabled={
+                                  isPending || listedChunkIds.has(chunk.chunkId)
+                                }
+                              >
+                                {listedChunkIds.has(chunk.chunkId)
+                                  ? "✓ Listed"
+                                  : "📤 List for Sale"}
+                              </button>
+                            </div>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="marketplace-empty">
+                      <div className="marketplace-empty__icon">📦</div>
+                      <p className="marketplace-empty__text">
+                        You don't have any chunks yet. Explore the game to mint
+                        your first chunk!
+                      </p>
+                    </div>
+                  )
+                ) : (
+                  <div className="marketplace-empty">
+                    <div className="marketplace-empty__icon">🔗</div>
+                    <p className="marketplace-empty__text">
+                      Connect your wallet to view your chunks
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="marketplace-modal__footer">
+                <button className="btn--ghost" onClick={loadOwnedChunks}>
+                  🔄 Reload Chunks
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Listings Section */}
+        <section className="marketplace-section">
+          <div className="marketplace-section__header">
+            <h2 className="marketplace-section__title">
+              <span className="marketplace-section__title-icon">🛒</span>
+              Available Listings
+            </h2>
+            <div className="marketplace-section__actions">
+              <button
+                className="btn--ghost"
+                onClick={refreshListings}
+                disabled={isLoading}
+              >
+                {isLoading ? "⏳ Loading..." : "🔄 Refresh"}
+              </button>
+            </div>
+          </div>
+
+          {status && <div className="marketplace-status">{status}</div>}
+
+          {hasListings ? (
+            <div className="marketplace-grid marketplace-grid--listings">
+              {listings.map((listing) => (
+                <article
+                  key={`${listing.chunkId}-${listing.timestamp}`}
+                  className="marketplace-listing-card"
+                >
+                  <div
+                    className="marketplace-listing-card__preview"
+                    style={{ background: cardBackground(listing.chunkId) }}
+                  />
+                  <div className="marketplace-listing-card__body">
+                    <div className="marketplace-listing-card__info">
+                      <div className="marketplace-listing-card__row">
+                        <span className="marketplace-listing-card__label">
+                          Chunk
+                        </span>
+                        <span
+                          className="marketplace-listing-card__value"
+                          title={listing.chunkId}
+                        >
+                          {truncateAddress(listing.chunkId, 8, 6)}
+                        </span>
+                      </div>
+                      <div className="marketplace-listing-card__row">
+                        <span className="marketplace-listing-card__label">
+                          World
+                        </span>
+                        <span
+                          className="marketplace-listing-card__value"
+                          title={listing.worldId}
+                        >
+                          {truncateAddress(listing.worldId, 8, 6)}
+                        </span>
+                      </div>
+                      <div className="marketplace-listing-card__row">
+                        <span className="marketplace-listing-card__label">
+                          Seller
+                        </span>
+                        <span
+                          className="marketplace-listing-card__value"
+                          title={listing.seller}
+                        >
+                          {truncateAddress(listing.seller, 6, 4)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="marketplace-listing-card__price">
+                      <span className="marketplace-listing-card__price-label">
+                        Price
+                      </span>
+                      <span className="marketplace-listing-card__price-value">
+                        {listing.price} CHUNK
+                      </span>
+                    </div>
+                    {listing.seller === account?.address ? (
+                      <button
+                        className="btn--secondary"
+                        onClick={() => handleDelist(listing)}
+                        disabled={isPending}
+                      >
+                        {isPending ? "⏳ Processing..." : "🔙 Delist"}
+                      </button>
+                    ) : (
+                      <button
+                        className="btn--primary"
+                        onClick={() => handleBuy(listing)}
+                        disabled={isPending}
+                      >
+                        {isPending ? "⏳ Processing..." : "💰 Buy Now"}
+                      </button>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="marketplace-empty">
+              <div className="marketplace-empty__icon">🏜️</div>
+              <p className="marketplace-empty__text">
+                No chunks currently listed for sale. Be the first to list!
+              </p>
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function extractObjectId(value: unknown): string {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value !== "object") return "";
+  const record = value as Record<string, unknown>;
+  if (typeof record.id === "string") return record.id;
+  if (record.id && typeof record.id === "object") {
+    const nested = record.id as Record<string, unknown>;
+    if (typeof nested.id === "string") return nested.id;
+  }
+  if (record.fields && typeof record.fields === "object") {
+    const fields = record.fields as Record<string, unknown>;
+    if (typeof fields.id === "string") return fields.id;
+    if (fields.id && typeof fields.id === "object") {
+      const nested = fields.id as Record<string, unknown>;
+      if (typeof nested.id === "string") return nested.id;
+    }
+  }
+  return "";
+}

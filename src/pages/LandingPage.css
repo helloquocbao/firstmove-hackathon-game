@@ -176,6 +176,41 @@
   backdrop-filter: blur(10px); */
 }
 
+.landing__nav .header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.landing__nav .reward-balance {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(89, 183, 255, 0.1);
+  border: 1px solid rgba(89, 183, 255, 0.3);
+  border-radius: 10px;
+  font-family: var(--font-mono);
+}
+
+.landing__nav .reward-balance__icon {
+  font-size: 18px;
+}
+
+.landing__nav .reward-balance__value {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--land-accent);
+}
+
+.landing__nav .reward-balance__label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--land-muted);
+}
+
 .landing .brand {
   display: flex;
   align-items: center;
@@ -245,6 +280,34 @@
 
 .wallet-connect-btn {
   font-family: var(--font-mono);
+}
+
+/* ===== CONNECT BUTTON OVERRIDE ===== */
+.wallet-connect-btn button,
+.landing__nav button {
+  font-family: var(--font-mono) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.1em !important;
+  padding: 12px 20px !important;
+  border-radius: 10px !important;
+  background: linear-gradient(135deg, var(--land-accent), #3d8fd1) !important;
+  border: 2px solid var(--land-accent) !important;
+  color: var(--land-bg-dark) !important;
+  box-shadow: 
+    0 4px 20px var(--land-accent-glow),
+    inset 0 2px 0 rgba(255, 255, 255, 0.2) !important;
+  transition: all 0.3s ease !important;
+  cursor: pointer !important;
+}
+
+.wallet-connect-btn button:hover,
+.landing__nav button:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 
+    0 8px 30px var(--land-accent-glow),
+    inset 0 2px 0 rgba(255, 255, 255, 0.3) !important;
 }
 
 /* ===== HERO SECTION ===== */

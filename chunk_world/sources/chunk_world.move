@@ -3,10 +3,14 @@ module chunk_world::world {
     use std::hash;
     use std::string::{Self, String};
 
+    use sui::balance::{Self, Balance};
     use sui::dynamic_field as df;
     use sui::event;
     use sui::coin::{Self, Coin};
+  
     use sui::random;
+
+ 
 
     use chunk_world::reward_coin;
     use chunk_world::reward_coin::RewardVault;
@@ -25,7 +29,7 @@ module chunk_world::world {
     const PLAY_FEE: u64 = 5;
     const MIN_REWARD: u64 = 2;
     const MAX_REWARD: u64 = 15;
-    const MAX_CHUNKS: u64 = 20;
+    // const MAX_CHUNKS: u64 = 20;
     const CHUNK_PRICE_INCREMENT: u64 = 5; // mỗi chunk sau mắc hơn 5 coin
     const DAILY_PLAY_LIMIT: u64 = 3;      // giới hạn 3 lần chơi mỗi epoch (~24h) cho play_v2
     const FREE_DAILY_PLAY_LIMIT: u64 = 2; // giới hạn 2 lần chơi miễn phí mỗi epoch cho play_v1
@@ -48,9 +52,16 @@ module chunk_world::world {
     const E_CHARACTER_ALREADY_EXISTS: u64 = 13;
     const E_INSUFFICIENT_POWER: u64 = 15;
     const E_INVALID_NAME: u64 = 16;
-    const E_MAX_CHUNKS_REACHED: u64 = 17;
     const E_DAILY_PLAY_LIMIT_REACHED: u64 = 18;
     const E_FREE_DAILY_LIMIT_REACHED: u64 = 19;
+    const E_LISTING_ALREADY_EXISTS: u64 = 20;
+    const E_LISTING_NOT_FOUND: u64 = 21;
+    const E_INVALID_PRICE: u64 = 22;
+    const E_NOT_LISTING_OWNER: u64 = 23;
+    const E_BUYER_IS_SELLER: u64 = 24;
+    const E_WORLD_MISMATCH: u64 = 25;
+    const E_NO_PROCEEDS: u64 = 26;
+    const E_INVALID_WITHDRAW_AMOUNT: u64 = 27;
 
     /* ================= ADMIN / REGISTRY ================= */
 
@@ -108,6 +119,29 @@ module chunk_world::world {
         decorations: vector<u8>, // decor layer: length=25, 0 = none
     }
 
+    /// Key to store chunk listings: chunk_id -> ChunkListing
+    public struct ListingKey has copy, drop, store {
+        chunk_id: ID,
+    }
+
+    /// Chunk listing object stores NFT + sale price
+    public struct ChunkListing has key, store {
+        id: UID,
+        chunk: ChunkNFT,
+        seller: address,
+        price: u64,
+    }
+
+    public struct SellerPayoutKey has copy, drop, store {
+        owner: address,
+    }
+
+    public struct SellerPayout has key, store {
+        id: UID,
+        owner: address,
+        balance: Balance<reward_coin::REWARD_COIN>,
+    }
+
     /* ================= CHARACTER NFT (SOULBOUND) ================= */
 
     /// Key cho dynamic field: owner_address -> character_id
@@ -149,6 +183,27 @@ module chunk_world::world {
         cx: u32,
         cy: u32,
         owner: address,
+    }
+
+    public struct ChunkListedEvent has copy, drop {
+        world_id: ID,
+        chunk_id: ID,
+        seller: address,
+        price: u64,
+    }
+
+    public struct ChunkSoldEvent has copy, drop {
+        world_id: ID,
+        chunk_id: ID,
+        seller: address,
+        buyer: address,
+        price: u64,
+    }
+
+    public struct ChunkDelistedEvent has copy, drop {
+        world_id: ID,
+        chunk_id: ID,
+        seller: address,
     }
 
     public struct ChunkTileUpdatedEvent has copy, drop {
@@ -351,7 +406,7 @@ module chunk_world::world {
     /// - Chunk đầu tiên của world bắt buộc (0,0) và miễn phí
     /// - Chunk sau phải kề 1 chunk đã tồn tại (4 hướng)
     /// - Giá chunk = chunk_count * 5 (chunk 1 = 0, chunk 2 = 5, chunk 3 = 10, ...)
-     entry fun claim_chunk(
+    entry fun claim_chunk(
         world: &mut WorldMap,
         vault: &mut RewardVault,
         randomness: &random::Random,
@@ -361,10 +416,14 @@ module chunk_world::world {
         mut payment: Coin<reward_coin::REWARD_COIN>,
         ctx: &mut TxContext
     ) {
-        assert!(world.chunk_count < MAX_CHUNKS, E_MAX_CHUNKS_REACHED);
+        // assert!(world.chunk_count < MAX_CHUNKS, E_MAX_CHUNKS_REACHED);
         
-        // Tính giá chunk: chunk đầu = 0, chunk sau mắc hơn 5 coin
-        let chunk_price = world.chunk_count * CHUNK_PRICE_INCREMENT;
+        // Tính giá chunk: chunk đầu = 0, chunk sau mắc hơn 5 coin, từ chunk 20 trở đi giá giữ nguyên
+        let chunk_price = if (world.chunk_count < 20) {
+            world.chunk_count * CHUNK_PRICE_INCREMENT
+        } else {
+            20 * CHUNK_PRICE_INCREMENT
+        };
         let payment_value = coin::value(&payment);
         assert!(payment_value >= chunk_price, E_INVALID_FEE);
         
@@ -428,6 +487,140 @@ module chunk_world::world {
         event::emit(ChunkClaimedEvent { world_id, chunk_id, cx, cy, owner: sender });
 
         transfer::public_transfer(chunk, sender);
+    }
+
+    /// List owned chunk on market
+    entry fun list_chunk(
+        world: &mut WorldMap,
+        chunk: ChunkNFT,
+        price: u64,
+        ctx: &mut TxContext
+    ) {
+        assert!(price > 0, E_INVALID_PRICE);
+        let world_id = object::uid_to_inner(&world.id);
+        assert!(chunk.world_id == world_id, E_WORLD_MISMATCH);
+        let chunk_id = object::uid_to_inner(&chunk.id);
+        assert!(
+            !df::exists_(&world.id, ListingKey { chunk_id }),
+            E_LISTING_ALREADY_EXISTS
+        );
+        let seller = tx_context::sender(ctx);
+
+        let listing = ChunkListing {
+            id: object::new(ctx),
+            chunk,
+            seller,
+            price,
+        };
+
+        df::add(&mut world.id, ListingKey { chunk_id }, listing);
+        event::emit(ChunkListedEvent {
+            world_id,
+            chunk_id,
+            seller,
+            price,
+        });
+    }
+
+    fun deposit_listing_proceeds(
+        world: &mut WorldMap,
+        owner: address,
+        amount: Balance<reward_coin::REWARD_COIN>,
+        ctx: &mut TxContext
+    ) {
+        let key = SellerPayoutKey { owner };
+        if (df::exists_(&world.id, key)) {
+            let payout: &mut SellerPayout = df::borrow_mut(&mut world.id, key);
+            balance::join(&mut payout.balance, amount);
+        } else {
+            let payout = SellerPayout {
+                id: object::new(ctx),
+                owner,
+                balance: amount,
+            };
+            df::add(&mut world.id, key, payout);
+        }
+    }
+
+    /// Buy listed chunk (pays seller in reward coin)
+    entry fun buy_chunk(
+        world: &mut WorldMap,
+        chunk_id: ID,
+        mut payment: Coin<reward_coin::REWARD_COIN>,
+        ctx: &mut TxContext
+    ) {
+        assert!(
+            df::exists_(&world.id, ListingKey { chunk_id }),
+            E_LISTING_NOT_FOUND
+        );
+        let ChunkListing {
+            id: listing_id,
+            chunk,
+            seller,
+            price,
+        } = df::remove(&mut world.id, ListingKey { chunk_id });
+        object::delete(listing_id);
+        let buyer = tx_context::sender(ctx);
+        assert!(buyer != seller, E_BUYER_IS_SELLER);
+        let payment_value = coin::value(&payment);
+        assert!(payment_value >= price, E_INVALID_FEE);
+
+        let payout = coin::split(&mut payment, price, ctx);
+        let payout_balance = coin::into_balance(payout);
+        deposit_listing_proceeds(world, seller, payout_balance, ctx);
+        transfer::public_transfer(payment, buyer);
+        transfer::public_transfer(chunk, buyer);
+        event::emit(ChunkSoldEvent {
+            world_id: object::uid_to_inner(&world.id),
+            chunk_id,
+            seller,
+            buyer,
+            price,
+        });
+    }
+
+    /// Cancel listing and return chunk to seller
+    entry fun cancel_listing(
+        world: &mut WorldMap,
+        chunk_id: ID,
+        ctx: & TxContext
+    ) {
+        let ChunkListing {
+            id: listing_id,
+            chunk,
+            seller,
+            ..
+        } = df::remove(&mut world.id, ListingKey { chunk_id });
+        assert!(seller == tx_context::sender(ctx), E_NOT_LISTING_OWNER);
+
+        object::delete(listing_id);
+        transfer::public_transfer(chunk, seller);
+        event::emit(ChunkDelistedEvent {
+            world_id: object::uid_to_inner(&world.id),
+            chunk_id,
+            seller,
+        });
+    }
+
+    /// Withdraw pending proceeds accrued from chunk sales
+    entry fun withdraw_proceeds(
+        world: &mut WorldMap,
+        amount: u64,
+        ctx: &mut TxContext
+    ) {
+        assert!(amount > 0, E_INVALID_WITHDRAW_AMOUNT);
+        let owner = tx_context::sender(ctx);
+        let key = SellerPayoutKey { owner };
+        assert!(df::exists_(&world.id, key), E_NO_PROCEEDS);
+        let payout: &mut SellerPayout = df::borrow_mut(&mut world.id, key);
+        let available = balance::value(&payout.balance);
+        assert!(available >= amount, E_INVALID_WITHDRAW_AMOUNT);
+        let coin = coin::take(&mut payout.balance, amount, ctx);
+        transfer::public_transfer(coin, owner);
+    }
+
+    public fun is_chunk_listed(world: &WorldMap, chunk_id: ID): bool {
+        df::exists_(&world.id, ListingKey { chunk_id })
     }
 
     /* ================= GAME: PLAY / REWARD ================= */

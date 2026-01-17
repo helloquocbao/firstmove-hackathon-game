@@ -1,19 +1,25 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ConnectButton } from "@mysten/dapp-kit";
+import { ConnectButton, useCurrentAccount } from "@mysten/dapp-kit";
+import { REWARD_COIN_TYPE } from "../chain/config";
+import { suiClient } from "../chain/suiClient";
 import "./LandingPage.css";
 
 const features = [
   {
     title: "🏔️ Stone Chunks",
-    description: "Mint 5×5 rock tiles as NFTs. Build floating islands in the sky.",
+    description:
+      "Mint 5×5 rock tiles as NFTs. Build floating islands in the sky.",
   },
   {
     title: "🎨 Carve & Paint",
-    description: "Edit tiles live on-chain. Every pixel you place is truly yours.",
+    description:
+      "Edit tiles live on-chain. Every pixel you place is truly yours.",
   },
   {
     title: "⚔️ Play & Earn",
-    description: "Explore on-chain worlds. Find hidden keys and claim CHUNK rewards.",
+    description:
+      "Explore on-chain worlds. Find hidden keys and claim CHUNK rewards.",
   },
 ];
 
@@ -21,26 +27,57 @@ const gameFeatures = [
   {
     icon: "🌍",
     title: "On-Chain Worlds",
-    description: "Every map chunk lives permanently on Sui blockchain. Trade or expand your territory.",
+    description:
+      "Every map chunk lives permanently on Sui blockchain. Trade or expand your territory.",
   },
   {
     icon: "🎮",
     title: "Adventure Mode",
-    description: "WASD movement, combat system. Explore worlds built by the community.",
+    description:
+      "WASD movement, combat system. Explore worlds built by the community.",
   },
   {
     icon: "💎",
     title: "NFT Rewards",
-    description: "Find hidden keys, claim CHUNK tokens, and earn while you play.",
+    description:
+      "Find hidden keys, claim CHUNK tokens, and earn while you play.",
   },
   {
     icon: "🔧",
     title: "Map Editor",
-    description: "Powerful tile editor with decoration layers. Design your dream world.",
+    description:
+      "Powerful tile editor with decoration layers. Design your dream world.",
   },
 ];
 
 export default function LandingPage() {
+  const account = useCurrentAccount();
+  const [rewardBalance, setRewardBalance] = useState(0);
+
+  useEffect(() => {
+    async function fetchBalance() {
+      if (!account?.address || !REWARD_COIN_TYPE) {
+        setRewardBalance(0);
+        return;
+      }
+      try {
+        const coins = await suiClient.getCoins({
+          owner: account.address,
+          coinType: REWARD_COIN_TYPE,
+        });
+        const total = coins.data.reduce(
+          (sum, coin) => sum + BigInt(coin.balance),
+          BigInt(0),
+        );
+        // DECIMALS = 0 in reward_coin.move, so no division needed
+        setRewardBalance(Number(total));
+      } catch (err) {
+        console.error("Failed to fetch reward balance:", err);
+        setRewardBalance(0);
+      }
+    }
+    fetchBalance();
+  }, [account?.address]);
 
   return (
     <div className="landing">
@@ -55,7 +92,10 @@ export default function LandingPage() {
 
       <div className="landing__content">
         {/* Navigation */}
-        <header className="landing__nav landing__reveal" style={{ "--delay": "0s" }}>
+        <header
+          className="landing__nav landing__reveal"
+          style={{ "--delay": "0s" }}
+        >
           <div className="brand">
             <div className="brand__mark">CW</div>
             <div>
@@ -67,10 +107,28 @@ export default function LandingPage() {
           <nav className="landing__links">
             <Link to="/editor">Editor</Link>
             <Link to="/game">Play Now</Link>
+            <Link to="/marketplace">Marketplace</Link>
           </nav>
 
-          <div className="wallet-connect-btn">
-            <ConnectButton />
+          <div className="header-right">
+            {account && (
+              <div className="reward-balance">
+                <span className="reward-balance__icon">
+                  <img
+                    alt="icon"
+                    className="w-4 h-4"
+                    src="https://ik.imagekit.io/huubao/chunk_coin.png?updatedAt=1768641987539"
+                  />
+                </span>
+                <span className="reward-balance__value">
+                  {rewardBalance.toLocaleString()}
+                </span>
+                <span className="reward-balance__label">CHUNK</span>
+              </div>
+            )}
+            <div className="wallet-connect-btn">
+              <ConnectButton />
+            </div>
           </div>
         </header>
 
@@ -85,19 +143,27 @@ export default function LandingPage() {
               <span>Powered by Sui Blockchain</span>
             </div>
 
-            <h1 className="hero__title landing__reveal" style={{ "--delay": "0.15s" }}>
-              Build your{" "}
-              <span className="hero__accent">sky world</span>,{" "}
-              one chunk at a time.
+            <h1
+              className="hero__title landing__reveal"
+              style={{ "--delay": "0.15s" }}
+            >
+              Build your <span className="hero__accent">sky world</span>, one
+              chunk at a time.
             </h1>
 
-            <p className="hero__subtitle landing__reveal" style={{ "--delay": "0.2s" }}>
-              Claim rocky chunks, carve tiles, and trade them as NFTs.
-              Every update lands on Sui and appears instantly in the game loop.
-              Your creativity, permanently on-chain.
+            <p
+              className="hero__subtitle landing__reveal"
+              style={{ "--delay": "0.2s" }}
+            >
+              Claim rocky chunks, carve tiles, and trade them as NFTs. Every
+              update lands on Sui and appears instantly in the game loop. Your
+              creativity, permanently on-chain.
             </p>
 
-            <div className="hero__cta landing__reveal" style={{ "--delay": "0.25s" }}>
+            <div
+              className="hero__cta landing__reveal"
+              style={{ "--delay": "0.25s" }}
+            >
               <Link className="btn btn--solid" to="/game">
                 🎮 Launch Game
               </Link>
@@ -106,7 +172,10 @@ export default function LandingPage() {
               </Link>
             </div>
 
-            <div className="hero__features landing__reveal" style={{ "--delay": "0.3s" }}>
+            <div
+              className="hero__features landing__reveal"
+              style={{ "--delay": "0.3s" }}
+            >
               {features.map((feature) => (
                 <div key={feature.title} className="feature">
                   <div className="feature__title">{feature.title}</div>
@@ -116,7 +185,10 @@ export default function LandingPage() {
             </div>
           </div>
 
-          <div className="hero__panel landing__reveal" style={{ "--delay": "0.2s" }}>
+          <div
+            className="hero__panel landing__reveal"
+            style={{ "--delay": "0.2s" }}
+          >
             <div className="panel__header">
               <div>
                 <div className="panel__eyebrow">Character Preview</div>
@@ -147,11 +219,15 @@ export default function LandingPage() {
         </section>
 
         {/* Features Grid Section */}
-        <section className="landing__features landing__reveal" style={{ "--delay": "0.35s" }}>
+        <section
+          className="landing__features landing__reveal"
+          style={{ "--delay": "0.35s" }}
+        >
           <div className="features__header">
             <h2 className="features__title">Why Chunk World?</h2>
             <p className="features__subtitle">
-              A new kind of gaming experience where players truly own their world.
+              A new kind of gaming experience where players truly own their
+              world.
             </p>
           </div>
           <div className="features__grid">
@@ -166,11 +242,15 @@ export default function LandingPage() {
         </section>
 
         {/* CTA Section */}
-        <section className="landing__cta landing__reveal" style={{ "--delay": "0.4s" }}>
+        <section
+          className="landing__cta landing__reveal"
+          style={{ "--delay": "0.4s" }}
+        >
           <div className="cta__content">
             <h2 className="cta__title">Ready to Build?</h2>
             <p className="cta__subtitle">
-              Connect your wallet and start creating your piece of the sky world.
+              Connect your wallet and start creating your piece of the sky
+              world.
             </p>
             <div className="cta__actions">
               <Link className="btn btn--solid" to="/game">
@@ -184,11 +264,15 @@ export default function LandingPage() {
         </section>
 
         {/* Footer */}
-        <footer className="landing__footer landing__reveal" style={{ "--delay": "0.45s" }}>
+        <footer
+          className="landing__footer landing__reveal"
+          style={{ "--delay": "0.45s" }}
+        >
           <div>Build together. Own your world. Play on Sui.</div>
           <div className="landing__foot-links">
             <Link to="/editor">Editor</Link>
             <Link to="/game">Play</Link>
+            <Link to="/marketplace">Marketplace</Link>
           </div>
         </footer>
       </div>

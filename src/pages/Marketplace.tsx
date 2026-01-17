@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Transaction } from "@mysten/sui/transactions";
-import { ConnectButton, useCurrentAccount, useSignAndExecuteTransaction } from "@mysten/dapp-kit";
+import {
+  ConnectButton,
+  useCurrentAccount,
+  useSignAndExecuteTransaction,
+} from "@mysten/dapp-kit";
 import { PACKAGE_ID, REWARD_COIN_TYPE } from "../chain/config";
 import { suiClient } from "../chain/suiClient";
 import "./Marketplace.css";
@@ -20,17 +24,37 @@ type Listing = {
   timestamp: number;
 };
 
+type ChunkInfo = {
+  chunkId: string;
+  chunkObjectId: string;
+  worldId: string;
+  cx?: number;
+  cy?: number;
+  imageUrl?: string;
+};
+
 export default function Marketplace() {
   const account = useCurrentAccount();
-  const { mutateAsync: signAndExecute, isPending } = useSignAndExecuteTransaction();
+  const { mutateAsync: signAndExecute, isPending } =
+    useSignAndExecuteTransaction();
   const [listings, setListings] = useState<Listing[]>([]);
+  const [ownedChunks, setOwnedChunks] = useState<ChunkInfo[]>([]);
+  const [priceInputs, setPriceInputs] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [status, setStatus] = useState("");
+  const [listingStatus, setListingStatus] = useState("");
+
+  const chunkType = PACKAGE_ID ? `${PACKAGE_ID}::world::ChunkNFT` : "";
 
   useEffect(() => {
     void refreshListings();
-  }, []);
+    void loadOwnedChunks();
+  }, [account?.address]);
 
+  const listedChunkIds = useMemo(
+    () => new Set(listings.map((item) => item.chunkId)),
+    [listings]
+  );
   const hasListings = listings.length > 0;
 
   async function refreshListings() {
@@ -66,9 +90,11 @@ export default function Marketplace() {
           typeof parsed.chunk_id === "string"
             ? parsed.chunk_id
             : typeof parsed.chunkId === "string"
-            ? parsed.chunkId
-            : "";
-        if (candidate) closedIds.add(candidate);
+              ? parsed.chunkId
+              : "";
+        if (candidate) {
+          closedIds.add(candidate);
+        }
       });
 
       const parsed = listedPage.data
@@ -78,14 +104,14 @@ export default function Marketplace() {
             typeof detail.chunk_id === "string"
               ? detail.chunk_id
               : typeof detail.chunkId === "string"
-              ? detail.chunkId
-              : "";
+                ? detail.chunkId
+                : "";
           const worldId =
             typeof detail.world_id === "string"
               ? detail.world_id
               : typeof detail.worldId === "string"
-              ? detail.worldId
-              : "";
+                ? detail.worldId
+                : "";
           const price = Number(detail.price ?? 0);
           if (!chunkId || !worldId || !price) return null;
           return {
@@ -98,13 +124,64 @@ export default function Marketplace() {
         })
         .filter((item): item is Listing => Boolean(item))
         .filter((item) => !closedIds.has(item.chunkId));
-
+      console.log(`parsed`, parsed);
       setListings(parsed);
     } catch (error) {
       console.error("Failed to load listings:", error);
       setStatus("Không thể tải danh sách, thử lại sau.");
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function loadOwnedChunks() {
+    if (!account?.address || !chunkType) {
+      setOwnedChunks([]);
+      return;
+    }
+
+    try {
+      const response = await suiClient.getOwnedObjects({
+        owner: account.address,
+        filter: { StructType: chunkType },
+        options: { showContent: true },
+      });
+
+      const parsed = response.data
+        .map((item) => {
+          const content = item.data?.content;
+          if (!content || content.dataType !== "moveObject") {
+            return null;
+          }
+          const objectId = item.data?.objectId ?? "";
+          if (!objectId) return null;
+          const fields = content.fields as Record<string, unknown>;
+          const worldId = extractObjectId(fields.world_id ?? fields.worldId);
+          const cx =
+            typeof fields.cx === "number" ? fields.cx : Number(fields.cx ?? 0);
+          const cy =
+            typeof fields.cy === "number" ? fields.cy : Number(fields.cy ?? 0);
+          const imageUrl =
+            typeof fields.image_url === "string" ? fields.image_url : "";
+          return {
+            worldId,
+            chunkId: objectId,
+            chunkObjectId: objectId,
+            cx,
+            cy,
+            imageUrl,
+          } satisfies ChunkInfo;
+        })
+        .filter((chunk): chunk is ChunkInfo => Boolean(chunk));
+
+      setOwnedChunks(parsed);
+      const defaults = parsed.reduce<Record<string, string>>((acc, chunk) => {
+        if (!acc[chunk.chunkId]) acc[chunk.chunkId] = "";
+        return acc;
+      }, {});
+      setPriceInputs((prev) => ({ ...defaults, ...prev }));
+    } catch (error) {
+      console.error("Failed to load chunks:", error);
     }
   }
 
@@ -130,9 +207,9 @@ export default function Marketplace() {
         return;
       }
 
-      const coin = coins.data.find(
-        (c) => BigInt(c.balance) >= BigInt(listing.price)
-      ) ?? coins.data[0];
+      const coin =
+        coins.data.find((c) => BigInt(c.balance) >= BigInt(listing.price)) ??
+        coins.data[0];
 
       const tx = new Transaction();
       tx.moveCall({
@@ -147,24 +224,158 @@ export default function Marketplace() {
       await signAndExecute({ transaction: tx });
       setStatus("Gửi giao dịch thành công, cập nhật sau.");
       void refreshListings();
+      void loadOwnedChunks();
     } catch (error) {
       console.error("Buy failed:", error);
       setStatus("Lỗi khi mua chunk. Xem console để biết chi tiết.");
     }
   }
 
+  const cardBackground = (seed: string) => {
+    const hash = seed
+      .split("")
+      .reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    const hue = hash % 360;
+    const hue2 = (hue + 70) % 360;
+    return `linear-gradient(135deg, hsl(${hue}, 100%, 35%), hsl(${hue2}, 70%, 45%))`;
+  };
+
+  async function handleListChunk(chunk: ChunkInfo) {
+    if (!account?.address) {
+      setListingStatus("Kết nối ví trước khi rao bán.");
+      return;
+    }
+
+    const priceValue = Number(priceInputs[chunk.chunkId]);
+    if (!priceValue || priceValue <= 0) {
+      setListingStatus("Giá phải lớn hơn 0.");
+      return;
+    }
+
+    if (!chunk.worldId) {
+      setListingStatus("Không xác định world ID.");
+      return;
+    }
+
+    setListingStatus("Đang gửi request...");
+    try {
+      const tx = new Transaction();
+      tx.moveCall({
+        target: `${PACKAGE_ID}::world::list_chunk`,
+        arguments: [
+          tx.object(chunk.worldId),
+          tx.object(chunk.chunkObjectId),
+          tx.pure("u64", priceValue),
+        ],
+      });
+
+      await signAndExecute({ transaction: tx });
+      setListingStatus("Chunk đã được đăng bán.");
+      void refreshListings();
+      void loadOwnedChunks();
+    } catch (error) {
+      console.error("List failed:", error);
+      setListingStatus("Không thể đăng chunk. Kiểm tra console.");
+    }
+  }
+
+  const ownedSection = (
+    <section className="marketplace-section marketplace-owned">
+      <div className="marketplace-panel__header">
+        <h2>Chunks của bạn</h2>
+        <button onClick={loadOwnedChunks}>Tải lại</button>
+      </div>
+      {listingStatus && (
+        <div className="marketplace-status">{listingStatus}</div>
+      )}
+      {account?.address ? (
+        ownedChunks.length > 0 ? (
+          <div className="flex grid grid-cols-6 gap-4">
+            {ownedChunks.map((chunk) => (
+              <article
+                key={chunk.chunkId}
+                className="marketplace-owned-card col-span-1"
+              >
+                <div>
+                  <img src={chunk?.imageUrl} />
+                </div>
+                <div>
+                  <p className="marketplace-label">Chunk</p>
+                  <p className="marketplace-value">{chunk.chunkId}</p>
+                </div>
+                <div>
+                  <p className="marketplace-label">World</p>
+                  <p className="marketplace-value">{chunk.worldId}</p>
+                </div>
+                <div>
+                  <p className="marketplace-label">Coords</p>
+                  <p className="marketplace-value">
+                    ({chunk.cx ?? "?"}, {chunk.cy ?? "?"})
+                  </p>
+                </div>
+                <div className="marketplace-listing-row">
+                  <input
+                    className="marketplace-price-input"
+                    type="number"
+                    min="1"
+                    value={priceInputs[chunk.chunkId] ?? ""}
+                    onChange={(event) =>
+                      setPriceInputs((prev) => ({
+                        ...prev,
+                        [chunk.chunkId]: event.target.value,
+                      }))
+                    }
+                    placeholder="Giá bán (CHUNK)"
+                  />
+                  <button
+                    className="marketplace-buy-btn"
+                    onClick={() => handleListChunk(chunk)}
+                    disabled={isPending || listedChunkIds.has(chunk.chunkId)}
+                  >
+                    {listedChunkIds.has(chunk.chunkId)
+                      ? "Đã rao"
+                      : "Rao bán chunk"}
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="marketplace-empty">Bạn chưa có chunk nào trong ví.</p>
+        )
+      ) : (
+        <p className="marketplace-empty">Kết nối ví để xem chunk của bạn.</p>
+      )}
+    </section>
+  );
+
   return (
     <div className="marketplace-page">
-      <header className="marketplace-header">
-        <div>
-          <h1>Chunk Marketplace</h1>
-          <p>Tìm chunk đang được rao bán và mua trực tiếp.</p>
+      <section className="marketplace-hero">
+        <div className="marketplace-hero__copy">
+          <p className="marketplace-hero__tag">Marketplace Alpha</p>
+          <h1>Buy &amp; Sell Chunk Lands</h1>
+          <p className="marketplace-hero__subtitle">
+            Every land is an NFT on Sui. List fast, explore others, and claim
+            CHUNK tokens as payment.
+          </p>
+          <div className="marketplace-hero__cta">
+            <button onClick={refreshListings} disabled={isLoading}>
+              {isLoading ? "Đang tải..." : "Cập nhật danh sách"}
+            </button>
+            <ConnectButton />
+          </div>
         </div>
-        <div className="marketplace-header__actions">
-          <span className="marketplace-wallet">{providerLabel}</span>
-          <ConnectButton />
+        <div className="marketplace-hero__panel">
+          <div className="marketplace-hero__panel-inner">
+            <p>Wallet: {providerLabel}</p>
+            <p>Active listings: {listings.length}</p>
+            <p>Owned chunks: {ownedChunks.length}</p>
+          </div>
         </div>
-      </header>
+      </section>
+
+      {ownedSection}
 
       <section className="marketplace-panel">
         <div className="marketplace-panel__header">
@@ -175,22 +386,25 @@ export default function Marketplace() {
         </div>
         {status && <div className="marketplace-status">{status}</div>}
         {hasListings ? (
-          <div className="marketplace-grid">
+          <div className="marketplace-grid marketplace-grid--tiles">
             {listings.map((listing) => (
-              <article key={`${listing.chunkId}-${listing.timestamp}`} className="marketplace-card">
-                <div>
-                  <p className="marketplace-label">Chunk ID</p>
-                  <p className="marketplace-value">{listing.chunkId}</p>
-                </div>
-                <div>
+              <article
+                key={`${listing.chunkId}-${listing.timestamp}`}
+                className="marketplace-card marketplace-card--tile"
+              >
+                <div
+                  className="marketplace-card__preview"
+                  style={{ backgroundImage: cardBackground(listing.chunkId) }}
+                />
+                <div className="marketplace-card__body">
+                  <p className="marketplace-label">Chunk</p>
+                  <p className="marketplace-value">
+                    {listing.chunkId.slice(0, 12)}…
+                  </p>
                   <p className="marketplace-label">World</p>
-                  <p className="marketplace-value">{listing.worldId}</p>
-                </div>
-                <div>
-                  <p className="marketplace-label">Seller</p>
-                  <p className="marketplace-value">{listing.seller}</p>
-                </div>
-                <div>
+                  <p className="marketplace-value">
+                    {listing.worldId.slice(0, 12)}…
+                  </p>
                   <p className="marketplace-label">Price</p>
                   <p className="marketplace-value">{listing.price} CHUNK</p>
                 </div>
@@ -199,7 +413,7 @@ export default function Marketplace() {
                   onClick={() => handleBuy(listing)}
                   disabled={isPending}
                 >
-                  {isPending ? "Đang xử lý..." : "Mua chunk"}
+                  {isPending ? "Đang xử lý..." : "Mua"}
                 </button>
               </article>
             ))}
@@ -212,4 +426,25 @@ export default function Marketplace() {
       </section>
     </div>
   );
+}
+
+function extractObjectId(value: unknown): string {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value !== "object") return "";
+  const record = value as Record<string, unknown>;
+  if (typeof record.id === "string") return record.id;
+  if (record.id && typeof record.id === "object") {
+    const nested = record.id as Record<string, unknown>;
+    if (typeof nested.id === "string") return nested.id;
+  }
+  if (record.fields && typeof record.fields === "object") {
+    const fields = record.fields as Record<string, unknown>;
+    if (typeof fields.id === "string") return fields.id;
+    if (fields.id && typeof fields.id === "object") {
+      const nested = fields.id as Record<string, unknown>;
+      if (typeof nested.id === "string") return nested.id;
+    }
+  }
+  return "";
 }

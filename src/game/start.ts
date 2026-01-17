@@ -34,14 +34,28 @@ export function startGame(mapData?: GameMapData) {
   }
   started = true;
 
-  kaboom({
+  // Get actual viewport size for fullscreen
+  const canvas = document.getElementById("game") as HTMLCanvasElement;
+  const initialWidth = window.innerWidth;
+  const initialHeight = window.innerHeight;
+
+  const k = kaboom({
     global: true,
-    canvas: document.getElementById("game") as HTMLCanvasElement,
-    width: 960,
-    height: 540,
-    background: [203, 232, 255],
+    canvas,
+    width: initialWidth,
+    height: initialHeight,
+    background: [26, 42, 58],
     scale: 1,
+    crisp: true,
   });
+
+  // Handle window resize to keep game fullscreen
+  window.addEventListener("resize", () => {
+    // Kaboom doesn't have a native resize, but we can update canvas
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  });
+
   debug.inspect = true;
   debug.showArea = true;
   /* ================= SPRITES ================= */
@@ -214,7 +228,7 @@ export function startGame(mapData?: GameMapData) {
 
     onUpdate(() => {
       camPos(player.pos);
-      camScale(1.3); // Zoom camera 2x để nhìn rõ hơn
+      camScale(2); // Zoom camera 2x để nhìn rõ hơn
     });
 
     /* ================= INPUT STATE ================= */

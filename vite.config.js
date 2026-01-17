@@ -5,6 +5,17 @@ import tailwindcss from "@tailwindcss/vite";
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      "@noble/hashes/sha3": "@noble/hashes/sha3.js",
+      "@noble/hashes/sha2": "@noble/hashes/sha2.js",
+      "@noble/hashes/blake2": "@noble/hashes/blake2.js",
+      "@noble/hashes/hmac": "@noble/hashes/hmac.js",
+      "@noble/hashes/hkdf": "@noble/hashes/hkdf.js",
+      "@noble/hashes/pbkdf2": "@noble/hashes/pbkdf2.js",
+      "@noble/hashes/utils": "@noble/hashes/utils.js",
+    },
+  },
   server: {
     proxy: {
       "/api": {

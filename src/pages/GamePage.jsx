@@ -54,6 +54,10 @@ export default function GamePage() {
   const [isClaimBusy, setIsClaimBusy] = useState(false);
   const [isClaimCheckBusy, setIsClaimCheckBusy] = useState(false);
 
+  // UI visibility states for collapsible overlays
+  const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
   useEffect(() => {
     startGame();
     handletests();
@@ -215,8 +219,8 @@ export default function GamePage() {
               typeof record.world_id === "string"
                 ? record.world_id
                 : typeof record.worldId === "string"
-                ? record.worldId
-                : "";
+                  ? record.worldId
+                  : "";
             if (id) ids.add(id);
           }
 
@@ -488,8 +492,8 @@ export default function GamePage() {
         typeof parsed.play_id === "string"
           ? parsed.play_id
           : typeof parsed.play_id === "number"
-          ? String(parsed.play_id)
-          : "";
+            ? String(parsed.play_id)
+            : "";
       console.log("nextPlayId", nextPlayId);
       if (!nextPlayId) {
         setPlayError("Play created but play_id not found.");
@@ -581,8 +585,8 @@ export default function GamePage() {
         typeof parsed.reward === "string"
           ? parsed.reward
           : typeof parsed.reward === "number"
-          ? String(parsed.reward)
-          : "";
+            ? String(parsed.reward)
+            : "";
 
       resetPlayState(
         rewardValue ? `Claimed ${rewardValue} CHUNK.` : "Claimed reward."
@@ -644,8 +648,24 @@ export default function GamePage() {
         <span className="game-haze" />
       </div>
 
+      {/* Toggle buttons */}
+      <button
+        className="game-toggle-btn game-toggle-header"
+        onClick={() => setIsHeaderCollapsed(!isHeaderCollapsed)}
+        title={isHeaderCollapsed ? "Show header" : "Hide header"}
+      >
+        {isHeaderCollapsed ? "☰" : "✕"}
+      </button>
+      <button
+        className={`game-toggle-btn game-toggle-sidebar ${!isSidebarCollapsed ? "sidebar-open" : ""}`}
+        onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+        title={isSidebarCollapsed ? "Show panel" : "Hide panel"}
+      >
+        {isSidebarCollapsed ? "◀" : "▶"}
+      </button>
+
       <div className="game-shell">
-        <header className="game-header">
+        <header className={`game-header ${isHeaderCollapsed ? "collapsed" : ""}`}>
           <div>
             <div className="game-eyebrow">Skyworld run</div>
             <h1 className="game-title">Chunk adventure</h1>
@@ -668,8 +688,10 @@ export default function GamePage() {
             <canvas id="game" />
           </div>
 
-          <aside className="game-info">
-            <div className="game-info__title">World</div>
+          <aside className={`game-info ${isSidebarCollapsed ? "collapsed" : ""}`}>
+            <div className="game-info__title flex justify-between items-center">
+              <span className="font-bold">MISSION</span>
+            </div>
             <div className="game-field">
               <label>World id</label>
               <select
@@ -889,12 +911,12 @@ function matchesPlayId(parsedJson, targetPlayId) {
     typeof record.play_id === "string"
       ? record.play_id
       : typeof record.play_id === "number"
-      ? String(record.play_id)
-      : typeof record.playId === "string"
-      ? record.playId
-      : typeof record.playId === "number"
-      ? String(record.playId)
-      : "";
+        ? String(record.play_id)
+        : typeof record.playId === "string"
+          ? record.playId
+          : typeof record.playId === "number"
+            ? String(record.playId)
+            : "";
   return candidate === targetPlayId;
 }
 

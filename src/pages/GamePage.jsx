@@ -60,9 +60,8 @@ export default function GamePage() {
   // Play mode: 'v1' = free (2 plays/day), 'v2' = paid (3 plays/day, better rewards)
   const [playMode, setPlayMode] = useState("v1");
 
-  // UI visibility states for collapsible overlays
-  const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  // Active panel state: null | 'character' | 'rewards' | 'info'
+  const [activePanel, setActivePanel] = useState(null);
 
   // Character stats
   const [characterId, setCharacterId] = useState("");
@@ -1059,41 +1058,55 @@ export default function GamePage() {
         <span className="game-haze" />
       </div>
 
-      {/* Toggle buttons */}
-      <button
-        className="game-toggle-btn game-toggle-header"
-        onClick={() => setIsHeaderCollapsed(!isHeaderCollapsed)}
-        title={isHeaderCollapsed ? "Show header" : "Hide header"}
-      >
-        {isHeaderCollapsed ? "☰" : "✕"}
-      </button>
-      <button
-        className={`game-toggle-btn game-toggle-sidebar ${!isSidebarCollapsed ? "sidebar-open" : ""
-          }`}
-        onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-        title={isSidebarCollapsed ? "Show panel" : "Hide panel"}
-      >
-        {isSidebarCollapsed ? "◀" : "▶"}
-      </button>
+      {/* Floating Panel Buttons */}
+      <div className="game-panel-buttons">
+        <button
+          className={`game-panel-btn ${activePanel === 'character' ? 'active' : ''}`}
+          onClick={() => setActivePanel(activePanel === 'character' ? null : 'character')}
+          title="Character"
+        >
+          👤
+        </button>
+        <button
+          className={`game-panel-btn ${activePanel === 'rewards' ? 'active' : ''}`}
+          onClick={() => setActivePanel(activePanel === 'rewards' ? null : 'rewards')}
+          title="Rewards"
+        >
+          🎁
+        </button>
+        <button
+          className={`game-panel-btn ${activePanel === 'info' ? 'active' : ''}`}
+          onClick={() => setActivePanel(activePanel === 'info' ? null : 'info')}
+          title="Info"
+        >
+          ℹ️
+        </button>
+      </div>
 
       <div className="game-shell">
-        <header
-          className={`game-header ${isHeaderCollapsed ? "collapsed" : ""}`}
-        >
-          <div>
-            <div className="game-eyebrow">Skyworld run</div>
-            <h1 className="game-title">Chunk adventure</h1>
-            <p className="game-subtitle">
-              Test your map and feel the flow before minting.
-            </p>
-          </div>
-          <div className="game-links">
+        {/* Minimal Header */}
+        <header className="game-header">
+          <nav className="game-nav">
             <Link className="game-link" to="/">
-              Home
+              🏠 Home
             </Link>
             <Link className="game-link" to="/editor">
-              Editor
+              🔧 Editor
             </Link>
+          </nav>
+          <div className="game-header-right">
+            {account && (
+              <div className="game-balance">
+                <img
+                  alt="CHUNK"
+                  className="game-balance__icon"
+                  src="https://ik.imagekit.io/huubao/chunk_coin.png?updatedAt=1768641987539"
+                />
+                <span className="game-balance__value">{rewardBalance}</span>
+                <span className="game-balance__label">CHUNK</span>
+              </div>
+            )}
+            <ConnectButton />
           </div>
         </header>
 
@@ -1108,237 +1121,247 @@ export default function GamePage() {
             )}
           </div>
 
-          <aside
-            className={`game-info ${isSidebarCollapsed ? "collapsed" : ""}`}
-          >
-            <div className="game-info__title flex justify-between items-center">
-              <span className="font-bold">MISSION</span>
-            </div>
-            {isMapLoading && (
-              <div className="game-info__note">Loading world...</div>
-            )}
-            {loadedChunks !== null && (
-              <div className="game-info__note">
-                Loaded {loadedChunks} chunks.
+          {/* Character Panel */}
+          {activePanel === 'character' && (
+            <aside className="game-panel">
+              <div className="game-panel__header">
+                <span>👤 Character</span>
+                <button onClick={() => setActivePanel(null)}>✕</button>
               </div>
-            )}
-            {worldListError && (
-              <div className="game-info__error">{worldListError}</div>
-            )}
-            {mapLoadError && (
-              <div className="game-info__error">{mapLoadError}</div>
-            )}
-
-            <div className="game-info__title">Wallet</div>
-            <div className="game-info__card">
-              <span>Reward balance</span>
-              <span>{rewardBalance}</span>
-            </div>
-            <ConnectButton />
-
-            {characterId && (
-              <>
-                <div className="game-info__title">Character</div>
-                <div className="game-info__card">
-                  <span>Name</span>
-                  <span>{characterName || "-"}</span>
-                </div>
-                <div className="game-info__card">
-                  <span>❤️ Health</span>
-                  <span>{characterHealth}</span>
-                </div>
-                <div className="game-info__card">
-                  <span>⚔️ Power</span>
-                  <span>{characterPower}</span>
-                </div>
-                <div className="game-info__card">
-                  <span>✨ Potential</span>
-                  <span>{characterPotential}</span>
-                </div>
-                <div className="game-info__card">
-                  <span>🎮 Daily Plays</span>
-                  <span>{characterDailyPlays}/3</span>
-                </div>
-                <div className="game-info__card">
-                  <span>🆓 Free Plays</span>
-                  <span>{characterFreePlays}/2</span>
-                </div>
-              </>
-            )}
-            {!characterId && account?.address && (
-              <div className="game-info__note">
-                No character found. Create one in Editor.
+              <div className="game-panel__body">
+                {characterId ? (
+                  <>
+                    <div className="game-info__card">
+                      <span>Name</span>
+                      <span>{characterName || "-"}</span>
+                    </div>
+                    <div className="game-info__card">
+                      <span>❤️ Health</span>
+                      <span>{characterHealth}</span>
+                    </div>
+                    <div className="game-info__card">
+                      <span>⚔️ Power</span>
+                      <span>{characterPower}</span>
+                    </div>
+                    <div className="game-info__card">
+                      <span>✨ Potential</span>
+                      <span>{characterPotential}</span>
+                    </div>
+                    <div className="game-info__card">
+                      <span>🎮 Daily Plays</span>
+                      <span>{characterDailyPlays}/3</span>
+                    </div>
+                    <div className="game-info__card">
+                      <span>🆓 Free Plays</span>
+                      <span>{characterFreePlays}/2</span>
+                    </div>
+                  </>
+                ) : account?.address ? (
+                  <div className="game-info__note">
+                    No character found.
+                    <button
+                      className="game-btn game-btn--primary"
+                      style={{ marginTop: '8px', width: '100%' }}
+                      onClick={() => setShowCreateCharacterModal(true)}
+                    >
+                      Create Character
+                    </button>
+                  </div>
+                ) : (
+                  <div className="game-info__note">Connect wallet to see character.</div>
+                )}
               </div>
-            )}
+            </aside>
+          )}
 
-            <div className="game-info__title">Rewards</div>
-
-            {/* Pending Session Warning */}
-            {playId && !isKeyFound && (
-              <div className="pending-session-warning">
-                <div className="pending-session-header">
-                  ⚠️ Pending Game Session
+          {/* Rewards Panel */}
+          {activePanel === 'rewards' && (
+            <aside className="game-panel">
+              <div className="game-panel__header">
+                <span>� Rewards</span>
+                <button onClick={() => setActivePanel(null)}>✕</button>
+              </div>
+              <div className="game-panel__body">
+                <div className="game-info__card">
+                  <span>Play ID</span>
+                  <span>{playId || "-"}</span>
                 </div>
-                <div className="pending-session-info">
-                  <span>Play ID: {playId}</span>
+                <div className="game-info__card">
+                  <span>Key Status</span>
+                  <span>{isKeyFound ? "🔑 Found" : playId ? "🔍 Hidden" : "-"}</span>
+                </div>
+
+                {/* Pending Session Warning */}
+                {playId && !isKeyFound && (
+                  <div className="pending-session-warning">
+                    <div className="pending-session-header">
+                      ⚠️ Pending Game Session
+                    </div>
+                    <div className="pending-session-info">
+                      <span>Play ID: {playId}</span>
+                      <span>
+                        World: {loadPlayState()?.worldId?.slice(0, 10) || "-"}...
+                      </span>
+                    </div>
+                    <div className="backup-key-section">
+                      <div className="backup-key-label">
+                        🔑 Backup Key:
+                      </div>
+                      <div className="backup-key-value">
+                        <code>{playKeyHex}</code>
+                        <button
+                          className="copy-btn"
+                          onClick={() => {
+                            navigator.clipboard.writeText(playKeyHex);
+                            setPlayNotice("✅ Key copied!");
+                          }}
+                        >
+                          📋
+                        </button>
+                      </div>
+                    </div>
+                    <div className="pending-session-hint">
+                      {playId === "pending"
+                        ? "Transaction pending..."
+                        : "Find the key to claim reward!"}
+                    </div>
+                    <div className="pending-session-buttons">
+                      {playId === "pending" && (
+                        <button
+                          className="game-btn game-btn--retry"
+                          onClick={retryFetchPlayId}
+                          disabled={isWalletBusy}
+                        >
+                          🔄 Retry
+                        </button>
+                      )}
+                      <button
+                        className="game-btn game-btn--cancel"
+                        onClick={() => {
+                          if (confirm("Cancel session? You will lose the play.")) {
+                            resetPlayState("Session cancelled.");
+                          }
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Restore Session Button */}
+                {!playId && (
+                  <button
+                    className="game-btn game-btn--restore"
+                    onClick={() => setShowRestoreModal(true)}
+                  >
+                    🔄 Restore Session
+                  </button>
+                )}
+
+                <div className="play-mode-selector">
+                  <label>
+                    <input
+                      type="radio"
+                      name="playMode"
+                      value="v1"
+                      checked={playMode === "v1"}
+                      onChange={(e) => setPlayMode(e.target.value)}
+                    />
+                    V1 Free ({characterFreePlays}/2)
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      name="playMode"
+                      value="v2"
+                      checked={playMode === "v2"}
+                      onChange={(e) => setPlayMode(e.target.value)}
+                    />
+                    V2 5💰 ({characterDailyPlays}/3)
+                  </label>
+                </div>
+
+                <button
+                  className="game-btn game-btn--primary"
+                  onClick={() => handlePlayOnChain()}
+                  disabled={isWalletBusy || !account?.address}
+                >
+                  {isPlayBusy ? "Starting..." : `▶ Start ${playMode.toUpperCase()}`}
+                </button>
+                <button
+                  className="game-btn"
+                  onClick={handleClaimOnChain}
+                  disabled={!playId || !isKeyFound || isWalletBusy}
+                >
+                  {isClaimBusy ? "Claiming..." : "🎁 Claim Reward"}
+                </button>
+
+                {playNotice && <div className="game-info__note">{playNotice}</div>}
+                {playError && <div className="game-info__error">{playError}</div>}
+                {claimError && <div className="game-info__error">{claimError}</div>}
+              </div>
+            </aside>
+          )}
+
+          {/* Info Panel */}
+          {activePanel === 'info' && (
+            <aside className="game-panel">
+              <div className="game-panel__header">
+                <span>ℹ️ Info</span>
+                <button onClick={() => setActivePanel(null)}>✕</button>
+              </div>
+              <div className="game-panel__body">
+                {/* Map Status */}
+                {isMapLoading && (
+                  <div className="game-info__note">Loading world...</div>
+                )}
+                {loadedChunks !== null && (
+                  <div className="game-info__note">
+                    Loaded {loadedChunks} chunks.
+                  </div>
+                )}
+                {worldListError && (
+                  <div className="game-info__error">{worldListError}</div>
+                )}
+                {mapLoadError && (
+                  <div className="game-info__error">{mapLoadError}</div>
+                )}
+
+                {/* Controls */}
+                <div className="game-info__title">🎮 Controls</div>
+                <div className="game-info__card">
+                  <span>Move</span>
+                  <span>W A S D</span>
+                </div>
+                <div className="game-info__card">
+                  <span>Attack</span>
+                  <span>Space</span>
+                </div>
+
+                {/* Network Status */}
+                <div className="game-info__title">⛓️ Network</div>
+                <div className="game-info__card">
+                  <span>Status</span>
+                  <span>{difficultyInfo.networkStatus}</span>
+                </div>
+                <div className="game-info__card">
+                  <span>Validators</span>
+                  <span>{difficultyInfo.validatorStatus}</span>
+                </div>
+                <div className="game-info__card">
+                  <span>Difficulty</span>
+                  <span>{difficultyInfo.effectiveDifficulty.toFixed(1)}/9</span>
+                </div>
+                <div className="game-info__card">
+                  <span>Enemies</span>
                   <span>
-                    World: {loadPlayState()?.worldId?.slice(0, 10) || "-"}...
+                    {difficultyInfo.currentEnemyCount}/{difficultyInfo.targetEnemyCount}
                   </span>
                 </div>
-
-                {/* Backup Key - User có thể copy để dùng máy khác */}
-                <div className="backup-key-section">
-                  <div className="backup-key-label">
-                    🔑 Backup Key (copy này để dùng máy khác):
-                  </div>
-                  <div className="backup-key-value">
-                    <code>{playKeyHex}</code>
-                    <button
-                      className="copy-btn"
-                      onClick={() => {
-                        navigator.clipboard.writeText(playKeyHex);
-                        setPlayNotice("✅ Key copied to clipboard!");
-                      }}
-                    >
-                      📋 Copy
-                    </button>
-                  </div>
-                </div>
-                <div className="pending-session-hint">
-                  {playId === "pending"
-                    ? "Transaction submitted but Play ID not yet indexed."
-                    : "Find the key in the game to claim your reward!"}
-                </div>
-                <div className="pending-session-buttons">
-                  {playId === "pending" && (
-                    <button
-                      className="game-btn game-btn--retry"
-                      onClick={retryFetchPlayId}
-                      disabled={isWalletBusy}
-                    >
-                      🔄 Retry Fetch
-                    </button>
-                  )}
-                  <button
-                    className="game-btn game-btn--cancel"
-                    onClick={() => {
-                      if (
-                        confirm(
-                          "Cancel this session? You will lose the play and cannot claim reward."
-                        )
-                      ) {
-                        resetPlayState("Session cancelled.");
-                      }
-                    }}
-                  >
-                    Cancel Session
-                  </button>
-                </div>
               </div>
-            )}
-
-            <div className="game-info__card">
-              <span>Play id</span>
-              <span>{playId || "-"}</span>
-            </div>
-            <div className="game-info__card">
-              <span>Key status</span>
-              <span>{isKeyFound ? "found" : playId ? "hidden" : "-"}</span>
-            </div>
-
-            {/* Restore Session Button - Khi đổi máy */}
-            {!playId && (
-              <button
-                className="game-btn game-btn--restore"
-                onClick={() => setShowRestoreModal(true)}
-              >
-                🔄 Restore Session (đổi máy)
-              </button>
-            )}
-
-            <div className="play-mode-selector">
-              <label>
-                <input
-                  type="radio"
-                  name="playMode"
-                  value="v1"
-                  checked={playMode === "v1"}
-                  onChange={(e) => setPlayMode(e.target.value)}
-                />
-                V1 - Free ({characterFreePlays}/2)
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="playMode"
-                  value="v2"
-                  checked={playMode === "v2"}
-                  onChange={(e) => setPlayMode(e.target.value)}
-                />
-                V2 - 5 CHUNK ({characterDailyPlays}/3)
-              </label>
-            </div>
-            <button
-              className="game-btn game-btn--primary"
-              onClick={() => handlePlayOnChain()}
-              disabled={isWalletBusy || !account?.address}
-            >
-              {isPlayBusy
-                ? "Starting..."
-                : `Start Play ${playMode.toUpperCase()}`}
-            </button>
-            <button
-              className="game-btn"
-              onClick={handleClaimOnChain}
-              disabled={!playId || !isKeyFound || isWalletBusy}
-            >
-              {isClaimBusy ? "Claiming..." : "Claim reward"}
-            </button>
-
-            {playNotice && <div className="game-info__note">{playNotice}</div>}
-            {playError && <div className="game-info__error">{playError}</div>}
-            {claimError && <div className="game-info__error">{claimError}</div>}
-
-
-            <div className="game-info__title">Controls</div>
-            <div className="game-info__card">
-              <span>Move</span>
-              <span>W A S D</span>
-            </div>
-            <div className="game-info__card">
-              <span>Attack</span>
-              <span>Space</span>
-            </div>
-
-            {/* Dynamic Difficulty Info */}
-            <div className="game-info__title">⛓️ Network Status</div>
-            <div className="game-info__card">
-              <span>Network</span>
-              <span>{difficultyInfo.networkStatus}</span>
-            </div>
-            <div className="game-info__card">
-              <span>Validators</span>
-              <span>{difficultyInfo.validatorStatus}</span>
-            </div>
-            <div className="game-info__card">
-              <span>Base Difficulty</span>
-              <span>{difficultyInfo.baseDifficulty}/9</span>
-            </div>
-            <div className="game-info__card">
-              <span>Effective</span>
-              <span>{difficultyInfo.effectiveDifficulty.toFixed(1)}/9</span>
-            </div>
-            <div className="game-info__card">
-              <span>Enemies</span>
-              <span>
-                {difficultyInfo.currentEnemyCount}/
-                {difficultyInfo.targetEnemyCount}
-              </span>
-            </div>
-            <div className="game-info__note">
-              Difficulty scales with Sui network activity.
-            </div>
-          </aside>
+            </aside>
+          )}
         </div>
       </div>
 

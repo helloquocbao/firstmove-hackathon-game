@@ -45,11 +45,9 @@ export default function GamePage() {
   const [playNotice, setPlayNotice] = useState("");
   const [playError, setPlayError] = useState("");
   const [claimError, setClaimError] = useState("");
-  const [claimCheckMessage, setClaimCheckMessage] = useState("");
   const [isKeyFound, setIsKeyFound] = useState(false);
   const [isPlayBusy, setIsPlayBusy] = useState(false);
   const [isClaimBusy, setIsClaimBusy] = useState(false);
-  const [isClaimCheckBusy, setIsClaimCheckBusy] = useState(false);
   const [isGameStarted, setIsGameStarted] = useState(false);
   const [pendingMapData, setPendingMapData] = useState(null);
 
@@ -145,43 +143,7 @@ export default function GamePage() {
     return () => window.removeEventListener("game:difficulty-update", handler);
   }, []);
 
-  useEffect(() => {
-    if (!playId || !PACKAGE_ID) {
-      setClaimCheckMessage("");
-      setIsClaimCheckBusy(false);
-      return;
-    }
 
-    let isActive = true;
-    setClaimCheckMessage("Checking reward status on-chain...");
-    setIsClaimCheckBusy(true);
-
-    void (async () => {
-      try {
-        const claimed = await hasRewardBeenClaimed(playId);
-        if (!isActive) return;
-        if (claimed) {
-          resetPlayState("Reward already claimed on-chain.");
-          setClaimCheckMessage("This play already has a claim recorded.");
-        } else {
-          setClaimCheckMessage("No claim event found yet for this play.");
-        }
-      } catch (error) {
-        if (!isActive) return;
-        setClaimCheckMessage(
-          error instanceof Error ? error.message : String(error)
-        );
-      } finally {
-        if (isActive) {
-          setIsClaimCheckBusy(false);
-        }
-      }
-    })();
-
-    return () => {
-      isActive = false;
-    };
-  }, [playId]);
 
   useEffect(() => {
     void (async () => {
@@ -440,7 +402,7 @@ export default function GamePage() {
     } catch (error) {
       setPlayError(
         "Failed to fetch: " +
-          (error instanceof Error ? error.message : String(error))
+        (error instanceof Error ? error.message : String(error))
       );
     }
   }
@@ -528,7 +490,7 @@ export default function GamePage() {
     } catch (error) {
       setPlayError(
         "Failed to fetch: " +
-          (error instanceof Error ? error.message : String(error))
+        (error instanceof Error ? error.message : String(error))
       );
     } finally {
       setIsFetchingUnclaimed(false);
@@ -975,26 +937,62 @@ export default function GamePage() {
       });
 
       const result = await signAndExecute({ transaction: tx });
-      const txBlock = await suiClient.getTransactionBlock({
-        digest: result.digest,
-        options: { showEvents: true },
-      });
-      const eventType = `${PACKAGE_ID}::world::RewardClaimedEvent`;
-      const rewardEvent = txBlock.events?.find(
-        (event) => event.type === eventType
-      );
-      const parsed = rewardEvent?.parsedJson ?? {};
-      const rewardValue =
-        typeof parsed.reward === "string"
-          ? parsed.reward
-          : typeof parsed.reward === "number"
-            ? String(parsed.reward)
-            : "";
 
+      // Transaction was submitted successfully - reset play state immediately
+      // This ensures the UI updates even if we can't fetch transaction details yet
+      let rewardValue = "";
+
+      // Retry logic: wait for transaction to be indexed on chain
+      let txBlock = null;
+      let retryCount = 0;
+      const maxRetries = 5;
+      const retryDelay = 1500; // 1.5 seconds
+
+      while (retryCount < maxRetries) {
+        try {
+          await new Promise((resolve) => setTimeout(resolve, retryDelay));
+          txBlock = await suiClient.getTransactionBlock({
+            digest: result.digest,
+            options: { showEvents: true },
+          });
+          if (txBlock && txBlock.events) {
+            const eventType = `${PACKAGE_ID}::world::RewardClaimedEvent`;
+            const rewardEvent = txBlock.events?.find(
+              (event) => event.type === eventType
+            );
+            const parsed = rewardEvent?.parsedJson ?? {};
+            rewardValue =
+              typeof parsed.reward === "string"
+                ? parsed.reward
+                : typeof parsed.reward === "number"
+                  ? String(parsed.reward)
+                  : "";
+            break; // Success
+          }
+        } catch (fetchError) {
+          console.warn(
+            `Retry ${retryCount + 1}/${maxRetries}: waiting for claim transaction...`,
+            fetchError
+          );
+        }
+        retryCount++;
+      }
+
+      // Reset play state regardless of whether we could fetch details
       resetPlayState(
-        rewardValue ? `Claimed ${rewardValue} CHUNK.` : "Claimed reward."
+        rewardValue ?
+          <div className="flex items-center gap-2">
+            Claimed
+            <img
+              alt="icon"
+              className="w-4 h-4"
+              src="https://ik.imagekit.io/huubao/chunk_coin.png?updatedAt=1768641987539"
+            /> {rewardValue} CHUNK
+          </div>
+          : "Claimed reward successfully!"
       );
       await loadRewardBalance();
+      await loadCharacter(); // Refresh character stats (daily plays, free plays)
     } catch (error) {
       setClaimError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -1002,37 +1000,7 @@ export default function GamePage() {
     }
   }
 
-  async function handleVerifyClaimStatus() {
-    setClaimError("");
 
-    if (!playId) {
-      setClaimCheckMessage("No active play to verify.");
-      return;
-    }
-    if (!PACKAGE_ID) {
-      setClaimCheckMessage("Missing package id for event search.");
-      return;
-    }
-    if (isClaimCheckBusy) return;
-
-    setClaimCheckMessage("Checking reward status on-chain...");
-    setIsClaimCheckBusy(true);
-    try {
-      const claimed = await hasRewardBeenClaimed(playId);
-      if (claimed) {
-        resetPlayState("Reward already claimed on-chain.");
-        setClaimCheckMessage("Reward was already claimed for that play.");
-      } else {
-        setClaimCheckMessage("No claim event found yet for this play.");
-      }
-    } catch (error) {
-      setClaimCheckMessage(
-        error instanceof Error ? error.message : String(error)
-      );
-    } finally {
-      setIsClaimCheckBusy(false);
-    }
-  }
 
   async function handleCreateCharacter() {
     setCreateCharacterError("");
@@ -1100,9 +1068,8 @@ export default function GamePage() {
         {isHeaderCollapsed ? "☰" : "✕"}
       </button>
       <button
-        className={`game-toggle-btn game-toggle-sidebar ${
-          !isSidebarCollapsed ? "sidebar-open" : ""
-        }`}
+        className={`game-toggle-btn game-toggle-sidebar ${!isSidebarCollapsed ? "sidebar-open" : ""
+          }`}
         onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
         title={isSidebarCollapsed ? "Show panel" : "Hide panel"}
       >
@@ -1327,19 +1294,11 @@ export default function GamePage() {
             >
               {isClaimBusy ? "Claiming..." : "Claim reward"}
             </button>
-            <button
-              className="game-btn"
-              onClick={handleVerifyClaimStatus}
-              disabled={!playId || isWalletBusy || isClaimCheckBusy}
-            >
-              {isClaimCheckBusy ? "Checking..." : "Verify claim status"}
-            </button>
+
             {playNotice && <div className="game-info__note">{playNotice}</div>}
             {playError && <div className="game-info__error">{playError}</div>}
             {claimError && <div className="game-info__error">{claimError}</div>}
-            {claimCheckMessage && (
-              <div className="game-info__note">{claimCheckMessage}</div>
-            )}
+
 
             <div className="game-info__title">Controls</div>
             <div className="game-info__card">
@@ -1463,9 +1422,8 @@ export default function GamePage() {
                     {unclaimedPlays.map((play) => (
                       <div
                         key={play.playId}
-                        className={`unclaimed-item ${
-                          restorePlayId === play.playId ? "selected" : ""
-                        }`}
+                        className={`unclaimed-item ${restorePlayId === play.playId ? "selected" : ""
+                          }`}
                         onClick={() => {
                           setRestorePlayId(play.playId);
                           setRestoreWorldId(play.worldId);
@@ -1579,9 +1537,8 @@ export default function GamePage() {
               )}
               <div className="game-start-options">
                 <label
-                  className={`game-start-option ${
-                    startMode === "player" ? "active" : ""
-                  }`}
+                  className={`game-start-option ${startMode === "player" ? "active" : ""
+                    }`}
                 >
                   <input
                     type="radio"
@@ -1600,9 +1557,8 @@ export default function GamePage() {
                 </label>
                 {hasPendingPlay && (
                   <label
-                    className={`game-start-option ${
-                      startMode === "resume" ? "active" : ""
-                    }`}
+                    className={`game-start-option ${startMode === "resume" ? "active" : ""
+                      }`}
                   >
                     <input
                       type="radio"
@@ -1623,9 +1579,8 @@ export default function GamePage() {
                   </label>
                 )}
                 <label
-                  className={`game-start-option ${
-                    startMode === "chain" ? "active" : ""
-                  }`}
+                  className={`game-start-option ${startMode === "chain" ? "active" : ""
+                    }`}
                 >
                   <input
                     type="radio"
@@ -1645,9 +1600,8 @@ export default function GamePage() {
                 {startMode === "chain" && (
                   <div className="game-start-chain">
                     <label
-                      className={`game-start-option ${
-                        startChainMode === "v1" ? "active" : ""
-                      }`}
+                      className={`game-start-option ${startChainMode === "v1" ? "active" : ""
+                        }`}
                     >
                       <input
                         type="radio"
@@ -1665,9 +1619,8 @@ export default function GamePage() {
                       </div>
                     </label>
                     <label
-                      className={`game-start-option ${
-                        startChainMode === "v2" ? "active" : ""
-                      }`}
+                      className={`game-start-option ${startChainMode === "v2" ? "active" : ""
+                        }`}
                     >
                       <input
                         type="radio"
@@ -1832,52 +1785,7 @@ async function resolveChunkEntries(worldId, fields) {
     .filter((entry) => Boolean(entry));
 }
 
-function matchesPlayId(parsedJson, targetPlayId) {
-  if (!targetPlayId || !parsedJson || typeof parsedJson !== "object") {
-    return false;
-  }
-  const record = parsedJson;
-  const candidate =
-    typeof record.play_id === "string"
-      ? record.play_id
-      : typeof record.play_id === "number"
-        ? String(record.play_id)
-        : typeof record.playId === "string"
-          ? record.playId
-          : typeof record.playId === "number"
-            ? String(record.playId)
-            : "";
-  return candidate === targetPlayId;
-}
 
-async function hasRewardBeenClaimed(targetPlayId) {
-  if (!targetPlayId || !PACKAGE_ID) return false;
-  const eventType = `${PACKAGE_ID}::world::RewardClaimedEvent`;
-  let cursor = null;
-  let rounds = 0;
-  const limit = 50;
-  const maxRounds = 6;
-
-  while (rounds < maxRounds) {
-    const page = await suiClient.queryEvents({
-      query: { MoveEventType: eventType },
-      cursor: cursor ?? undefined,
-      limit,
-      order: "descending",
-    });
-    const events = page.data ?? [];
-
-    if (events.some((event) => matchesPlayId(event.parsedJson, targetPlayId))) {
-      return true;
-    }
-
-    if (!page.hasNextPage || !page.nextCursor) break;
-    cursor = page.nextCursor;
-    rounds += 1;
-  }
-
-  return false;
-}
 
 async function fetchListedChunk(worldId, chunkId) {
   if (!PACKAGE_ID || !worldId || !chunkId) return null;

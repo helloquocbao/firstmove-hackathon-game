@@ -1253,7 +1253,7 @@ export default function GamePage() {
                 {/* Restore Session Button */}
                 {!playId && (
                   <button
-                    className="game-btn game-btn--restore"
+                    className="game-btn game-btn--restore flex gap-2 items-center justify-center"
                     onClick={() => setShowRestoreModal(true)}
                   >
                     <RefreshCw size={12} /> Restore Session
@@ -1284,7 +1284,7 @@ export default function GamePage() {
                 </div>
 
                 <button
-                  className="game-btn game-btn--primary"
+                  className="game-btn game-btn--primary flex gap-2 items-center justify-center"
                   onClick={() => handlePlayOnChain()}
                   disabled={isWalletBusy || !account?.address}
                 >

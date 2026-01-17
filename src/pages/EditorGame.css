@@ -3,7 +3,6 @@
   position: relative;
   overflow: hidden;
   min-height: 100vh;
-  padding: 32px 24px 64px;
   color: var(--land-text);
   --land-bg-dark: #0a1929;
   --land-bg-mid: #0d2137;
@@ -56,6 +55,8 @@
 .editor-shell {
   max-width: 1280px;
   margin: 0 auto;
+  padding: 0 24px;
+  padding-bottom: 80px;
   display: flex;
   flex-direction: column;
   gap: 24px;
@@ -142,6 +143,34 @@
   background: rgba(89, 183, 255, 0.1);
   color: var(--land-text);
   box-shadow: 0 0 20px var(--land-accent-glow);
+}
+
+/* ===== CONNECT BUTTON OVERRIDE ===== */
+.editor-nav > div button,
+.editor-nav button {
+  font-family: var(--font-mono) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.1em !important;
+  padding: 12px 20px !important;
+  border-radius: 10px !important;
+  background: linear-gradient(135deg, var(--land-accent), #3d8fd1) !important;
+  border: 2px solid var(--land-accent) !important;
+  color: var(--land-bg-dark) !important;
+  box-shadow: 
+    0 4px 20px var(--land-accent-glow),
+    inset 0 2px 0 rgba(255, 255, 255, 0.2) !important;
+  transition: all 0.3s ease !important;
+  cursor: pointer !important;
+}
+
+.editor-nav > div button:hover,
+.editor-nav button:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 
+    0 8px 30px var(--land-accent-glow),
+    inset 0 2px 0 rgba(255, 255, 255, 0.3) !important;
 }
 
 .editor-header {
@@ -907,8 +936,9 @@
 }
 
 @media (max-width: 720px) {
-  .editor-page {
-    padding: 24px 16px 48px;
+  .editor-shell {
+    padding: 0 16px;
+    padding-bottom: 48px;
   }
 
   .panel {

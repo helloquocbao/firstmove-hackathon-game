@@ -247,6 +247,34 @@
   font-family: var(--font-mono);
 }
 
+/* ===== CONNECT BUTTON OVERRIDE ===== */
+.wallet-connect-btn button,
+.landing__nav button {
+  font-family: var(--font-mono) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.1em !important;
+  padding: 12px 20px !important;
+  border-radius: 10px !important;
+  background: linear-gradient(135deg, var(--land-accent), #3d8fd1) !important;
+  border: 2px solid var(--land-accent) !important;
+  color: var(--land-bg-dark) !important;
+  box-shadow: 
+    0 4px 20px var(--land-accent-glow),
+    inset 0 2px 0 rgba(255, 255, 255, 0.2) !important;
+  transition: all 0.3s ease !important;
+  cursor: pointer !important;
+}
+
+.wallet-connect-btn button:hover,
+.landing__nav button:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 
+    0 8px 30px var(--land-accent-glow),
+    inset 0 2px 0 rgba(255, 255, 255, 0.3) !important;
+}
+
 /* ===== HERO SECTION ===== */
 .landing__hero {
   display: grid;

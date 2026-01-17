@@ -164,6 +164,34 @@
   box-shadow: 0 0 20px rgba(89, 183, 255, 0.4);
 }
 
+/* ===== CONNECT BUTTON OVERRIDE ===== */
+.marketplace-nav > div button,
+.marketplace-nav button {
+  font-family: var(--font-mono, monospace) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.1em !important;
+  padding: 12px 20px !important;
+  border-radius: 10px !important;
+  background: linear-gradient(135deg, #59b7ff, #3d8fd1) !important;
+  border: 2px solid #59b7ff !important;
+  color: #0a1929 !important;
+  box-shadow: 
+    0 4px 20px rgba(89, 183, 255, 0.4),
+    inset 0 2px 0 rgba(255, 255, 255, 0.2) !important;
+  transition: all 0.3s ease !important;
+  cursor: pointer !important;
+}
+
+.marketplace-nav > div button:hover,
+.marketplace-nav button:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 
+    0 8px 30px rgba(89, 183, 255, 0.5),
+    inset 0 2px 0 rgba(255, 255, 255, 0.3) !important;
+}
+
 /* ===== HERO SECTION ===== */
 .marketplace-hero {
   display: grid;

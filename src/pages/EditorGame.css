@@ -150,6 +150,10 @@
   font-weight: 600;
 }
 
+.panel__header-row .panel__title {
+  margin-bottom: 0;
+}
+
 .panel__meta {
   font-family: var(--font-mono);
   font-size: 12px;
@@ -580,6 +584,104 @@
   to {
     transform: rotate(360deg);
   }
+}
+
+/* Panel header row with help button */
+.panel__header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.panel__help-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(34, 50, 71, 0.3);
+  background: rgba(246, 164, 75, 0.15);
+  color: var(--accent, #f6a44b);
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.panel__help-btn:hover {
+  background: rgba(246, 164, 75, 0.35);
+  border-color: var(--accent, #f6a44b);
+  transform: scale(1.08);
+}
+
+/* Small modal variant */
+.editor-modal__panel--sm {
+  width: min(92vw, 400px);
+}
+
+/* Help modal body */
+.help-modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink, #1c2633);
+}
+
+.help-modal__body p {
+  margin: 0;
+}
+
+.help-modal__pricing {
+  background: rgba(246, 164, 75, 0.08);
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.help-modal__pricing-title {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 10px;
+  color: var(--accent, #f6a44b);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.help-modal__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.help-modal__table th,
+.help-modal__table td {
+  padding: 6px 10px;
+  text-align: left;
+  border-bottom: 1px solid rgba(34, 50, 71, 0.1);
+}
+
+.help-modal__table th {
+  font-weight: 600;
+  color: rgba(34, 50, 71, 0.7);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.help-modal__table tr:last-child td {
+  border-bottom: none;
+}
+
+.help-modal__note {
+  font-size: 12px;
+  color: rgba(34, 50, 71, 0.7);
+  background: rgba(34, 50, 71, 0.05);
+  padding: 10px 12px;
+  border-radius: 8px;
 }
 
 @media (max-width: 720px) {

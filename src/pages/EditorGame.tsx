@@ -80,6 +80,10 @@ export default function EditorGame() {
   const [hoveredChunkKey, setHoveredChunkKey] = useState("");
   const [hoveredChunkId, setHoveredChunkId] = useState("");
   const [isHoverIdLoading, setIsHoverIdLoading] = useState(false);
+  const [isClaimHelpOpen, setIsClaimHelpOpen] = useState(false);
+
+  // Compute current chunk price for UI display
+  const claimChunkPrice = (loadedChunks ?? 0) < 20 ? (loadedChunks ?? 0) * 5 : 95;
 
   // World creation params
   const [worldName, setWorldName] = useState<string>("");
@@ -773,10 +777,11 @@ export default function EditorGame() {
     const decorations = Array(CHUNK_SIZE * CHUNK_SIZE).fill(0);
     const imageUrl = DEFAULT_CHUNK_IMAGE_URL;
 
-    // Calculate chunk price: chunk 0 = free, chunk N costs N * 5 coins
-    const CHUNK_PRICE_INCREMENT = 5;
+    // Calculate chunk price:
+    // - If chunks < 20: fee = chunks * 5 (chunk 0 = free, chunk 1 = 5, ...)
+    // - If chunks >= 20: fee = 95 (fixed)
     const currentChunkCount = loadedChunks ?? 0;
-    const chunkPrice = currentChunkCount * CHUNK_PRICE_INCREMENT;
+    const chunkPrice = currentChunkCount < 20 ? currentChunkCount * 5 : 95;
 
     // Check if user has enough coins before proceeding
     const coins = await suiClient.getCoins({
@@ -1432,16 +1437,28 @@ export default function EditorGame() {
             </div>
 
             <div className="panel">
-              <div className="panel__title">Claim chunk</div>
-              <p className="panel__desc">
-                Uses tiles from the selected chunk. Location is random but must
-                touch existing chunks. First chunk is free, then costs increase
-                by 5 coins per chunk (max 20 chunks).
-              </p>
+              <div className="panel__header-row">
+                <div className="panel__title">Claim chunk</div>
+                <button
+                  className="panel__help-btn"
+                  onClick={() => setIsClaimHelpOpen(true)}
+                  title="How pricing works"
+                >
+                  ?
+                </button>
+              </div>
               <div className="panel__rows">
                 <div>
                   <span>Selected chunk</span>
                   <span>{activeChunkLabel}</span>
+                </div>
+                <div>
+                  <span>Current chunks</span>
+                  <span>{loadedChunks ?? 0}</span>
+                </div>
+                <div>
+                  <span>Next chunk price</span>
+                  <span>{claimChunkPrice} CHUNK</span>
                 </div>
               </div>
               <button
@@ -1449,7 +1466,11 @@ export default function EditorGame() {
                 onClick={claimChunkOnChain}
                 disabled={isBusy || !isConnected}
               >
-                {busyAction === "Claim chunk" ? "Claiming..." : "Claim chunk"}
+                {busyAction === "Claim chunk"
+                  ? "Claiming..."
+                  : claimChunkPrice === 0
+                    ? "Claim chunk (Free)"
+                    : `Claim chunk (${claimChunkPrice} CHUNK)`}
               </button>
               {txError && <div className="panel__error">{txError}</div>}
             </div>
@@ -1506,6 +1527,82 @@ export default function EditorGame() {
             </div>
           </aside>
         </div>
+
+        {/* Claim Chunk Help Modal */}
+        {isClaimHelpOpen && (
+          <div className="editor-modal">
+            <div
+              className="editor-modal__backdrop"
+              onClick={() => setIsClaimHelpOpen(false)}
+            />
+            <div
+              className="editor-modal__panel editor-modal__panel--sm"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Chunk pricing help"
+            >
+              <div className="editor-modal__header">
+                <div>
+                  <div className="panel__eyebrow">Help</div>
+                  <div className="editor-modal__title">Chunk Pricing</div>
+                </div>
+                <button
+                  className="btn btn--outline editor-modal__close"
+                  onClick={() => setIsClaimHelpOpen(false)}
+                >
+                  Close
+                </button>
+              </div>
+              <div className="help-modal__body">
+                <p>
+                  Claiming chunks expands the world! Each chunk gives you a{" "}
+                  {CHUNK_SIZE}×{CHUNK_SIZE} tile area to customize.
+                </p>
+                <div className="help-modal__pricing">
+                  <div className="help-modal__pricing-title">Pricing Table</div>
+                  <table className="help-modal__table">
+                    <thead>
+                      <tr>
+                        <th>Chunk #</th>
+                        <th>Price (CHUNK)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>1</td>
+                        <td>Free</td>
+                      </tr>
+                      <tr>
+                        <td>2</td>
+                        <td>5</td>
+                      </tr>
+                      <tr>
+                        <td>3</td>
+                        <td>10</td>
+                      </tr>
+                      <tr>
+                        <td>...</td>
+                        <td>...</td>
+                      </tr>
+                      <tr>
+                        <td>20</td>
+                        <td>95</td>
+                      </tr>
+                      <tr>
+                        <td>21+</td>
+                        <td>95 (max)</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p className="help-modal__note">
+                  <strong>Formula:</strong> Chunks 1-19 cost (chunk# - 1) × 5.
+                  From chunk 20 onward, price stays fixed at 95 CHUNK.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {isChunkModalOpen && activeChunkCoords && (
           <div className="editor-modal">

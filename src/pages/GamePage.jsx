@@ -54,7 +54,7 @@ export default function GamePage() {
 
   // Pre-start modal (local/off-chain entry)
   const [showStartModal, setShowStartModal] = useState(true);
-  const [startMode, setStartMode] = useState("player");
+  const [startMode, setStartMode] = useState("player"); // Default to off-chain
   const [startModalError, setStartModalError] = useState("");
   const [startChainMode, setStartChainMode] = useState("v1");
 
@@ -904,6 +904,8 @@ export default function GamePage() {
 
   async function handleStartModalAction() {
     setStartModalError("");
+    
+    // Default to player mode - auto start off-chain
     if (startMode === "player") {
       if (isMapLoading) {
         setStartModalError("World is still loading.");
@@ -933,7 +935,7 @@ export default function GamePage() {
     }
 
     if (!account?.address) {
-      setStartModalError("Connect wallet to play on-chain.");
+      setStartModalError("Connect wallet for on-chain play.");
       return;
     }
     const resolvedCharacterId = characterId || (await loadCharacter());
@@ -1236,40 +1238,37 @@ export default function GamePage() {
             </aside>
           )}
 
-          {/* Rewards Panel */}
+          {/* Quest Board Panel */}
           {activePanel === 'rewards' && (
             <aside className="game-panel">
               <div className="game-panel__header">
-                <span>Rewards</span>
+                <span>Quest Board</span>
                 <button onClick={() => setActivePanel(null)}><X size={16} /></button>
               </div>
               <div className="game-panel__body">
-                <div className="game-info__card">
-                  <span>Play ID</span>
-                  <span>{playId || "-"}</span>
-                </div>
-                <div className="game-info__card">
-                  <span>Key Status</span>
-                  <span>{isKeyFound ? "Found" : playId ? "Hidden" : "-"}</span>
-                </div>
-
-                {/* Pending Session Warning */}
+                {/* Active Quest Status */}
                 {playId && !isKeyFound && (
-                  <div className="pending-session-warning">
-                    <div className="pending-session-header">
-                      Pending Game Session
+                  <div className="quest-active">
+                    <div className="quest-active__header">
+                      <span className="quest-active__badge">ACTIVE</span>
+                      <span className="quest-active__id">Quest #{playId}</span>
                     </div>
-                    <div className="pending-session-info">
-                      <span>Play ID: {playId}</span>
-                      <span>
-                        World: {loadPlayState()?.worldId?.slice(0, 10) || "-"}...
-                      </span>
+                    <div className="quest-active__objective">
+                      🗝️ Find the hidden key to claim your reward!
                     </div>
-                    <div className="backup-key-section">
-                      <div className="backup-key-label">
-                        Backup Key:
+                    <div className="quest-active__info">
+                      <div className="quest-info-row">
+                        <span>World:</span>
+                        <span>{loadPlayState()?.worldId?.slice(0, 10) || "-"}...</span>
                       </div>
-                      <div className="backup-key-value">
+                      <div className="quest-info-row">
+                        <span>Status:</span>
+                        <span className="text-yellow">In Progress</span>
+                      </div>
+                    </div>
+                    <div className="quest-backup-key">
+                      <div className="quest-backup-key__label">Backup Key:</div>
+                      <div className="quest-backup-key__value">
                         <code>{playKeyHex}</code>
                         <button
                           className="copy-btn"
@@ -1277,88 +1276,169 @@ export default function GamePage() {
                             navigator.clipboard.writeText(playKeyHex);
                             setPlayNotice("Key copied!");
                           }}
+                          title="Copy key"
                         >
                           <Copy size={12} />
                         </button>
                       </div>
+                      <div className="quest-backup-key__hint">
+                        Save this key to restore your quest later
+                      </div>
                     </div>
-                    <div className="pending-session-hint">
-                      {playId === "pending"
-                        ? "Transaction pending..."
-                        : "Find the key to claim reward!"}
-                    </div>
-                    <div className="pending-session-buttons">
+                    <div className="quest-actions">
                       {playId === "pending" && (
                         <button
                           className="game-btn game-btn--retry"
                           onClick={retryFetchPlayId}
                           disabled={isWalletBusy}
                         >
-                          <RefreshCw size={12} /> Retry
+                          <RefreshCw size={12} /> Retry Fetch
                         </button>
                       )}
                       <button
                         className="game-btn game-btn--cancel"
                         onClick={() => {
-                          if (confirm("Cancel session? You will lose the play.")) {
-                            resetPlayState("Session cancelled.");
+                          if (confirm("Abandon quest? You will lose progress.")) {
+                            resetPlayState("Quest abandoned.");
                           }
                         }}
                       >
-                        Cancel
+                        Abandon Quest
                       </button>
                     </div>
                   </div>
                 )}
 
-                {/* Restore Session Button */}
-                {!playId && (
-                  <button
-                    className="game-btn game-btn--restore flex gap-2 items-center justify-center"
-                    onClick={() => setShowRestoreModal(true)}
-                  >
-                    <RefreshCw size={12} /> Restore Session
-                  </button>
+                {/* Quest Complete - Ready to Claim */}
+                {playId && isKeyFound && (
+                  <div className="quest-complete">
+                    <div className="quest-complete__header">
+                      ✅ Quest Complete!
+                    </div>
+                    <div className="quest-complete__message">
+                      You found the key! Claim your reward now.
+                    </div>
+                    <button
+                      className="game-btn game-btn--primary game-btn--large"
+                      onClick={handleClaimOnChain}
+                      disabled={isWalletBusy}
+                    >
+                      {isClaimBusy ? "Claiming..." : "🎁 Claim Reward"}
+                    </button>
+                  </div>
                 )}
 
-                <div className="play-mode-selector">
-                  <label>
-                    <input
-                      type="radio"
-                      name="playMode"
-                      value="v1"
-                      checked={playMode === "v1"}
-                      onChange={(e) => setPlayMode(e.target.value)}
-                    />
-                    V1 Free ({characterFreePlays}/2)
-                  </label>
-                  <label>
-                    <input
-                      type="radio"
-                      name="playMode"
-                      value="v2"
-                      checked={playMode === "v2"}
-                      onChange={(e) => setPlayMode(e.target.value)}
-                    />
-                    V2 Paid ({characterDailyPlays}/3)
-                  </label>
-                </div>
+                {/* Available Quests */}
+                {!playId && (
+                  <>
+                    
+                    {/* Free Quest */}
+                    <div className="quest-card quest-card--free">
+                      <div className="quest-card__header">
+                        <div className="quest-card__title">
+                          <span>Free Quest</span>
+                        </div>
+                        <div className="quest-card__badge quest-card__badge--free">
+                          FREE
+                        </div>
+                      </div>
+                      <div className="quest-card__description">
+                        Practice run with basic rewards. Perfect for beginners!
+                      </div>
+                      <div className="quest-card__stats">
+                        <div className="quest-stat">
+                          <span className="quest-stat__label">Plays Today:</span>
+                          <span className="quest-stat__value">{characterFreePlays}/2</span>
+                        </div>
+                        <div className="quest-stat">
+                          <span className="quest-stat__label">Reward:</span>
+                          <span className="quest-stat__value">2 CHUNK</span>
+                        </div>
+                      </div>
+                      <button
+                        className="game-btn game-btn--quest game-btn--quest-free"
+                        onClick={() => handlePlayOnChain("v1")}
+                        disabled={isWalletBusy || !account?.address || characterFreePlays >= 2}
+                      >
+                        {isPlayBusy && playMode === "v1" ? (
+                          "Starting..."
+                        ) : characterFreePlays >= 2 ? (
+                          "Daily Limit Reached"
+                        ) : (
+                          <>
+                            <Play size={14} /> Accept Free Quest
+                          </>
+                        )}
+                      </button>
+                      {characterFreePlays >= 2 && (
+                        <div className="quest-card__note">
+                          Reset at next epoch (~24h)
+                        </div>
+                      )}
+                    </div>
 
-                <button
-                  className="game-btn game-btn--primary flex gap-2 items-center justify-center"
-                  onClick={() => handlePlayOnChain()}
-                  disabled={isWalletBusy || !account?.address}
-                >
-                  {isPlayBusy ? "Starting..." : <><Play size={12} /> Start {playMode.toUpperCase()}</>}
-                </button>
-                <button
-                  className="game-btn"
-                  onClick={handleClaimOnChain}
-                  disabled={!playId || !isKeyFound || isWalletBusy}
-                >
-                  {isClaimBusy ? "Claiming..." : "Claim Reward"}
-                </button>
+                    {/* Premium Quest */}
+                    <div className="quest-card quest-card--premium">
+                      <div className="quest-card__header">
+                        <div className="quest-card__title">
+                          <span>Premium Quest</span>
+                        </div>
+                        <div className="quest-card__badge quest-card__badge--premium">
+                          PREMIUM
+                        </div>
+                      </div>
+                      <div className="quest-card__description">
+                        Enhanced rewards for experienced adventurers. Higher stakes, bigger rewards!
+                      </div>
+                      <div className="quest-card__stats">
+                        <div className="quest-stat">
+                          <span className="quest-stat__label">Plays Today:</span>
+                          <span className="quest-stat__value">{characterDailyPlays}/3</span>
+                        </div>
+                        <div className="quest-stat">
+                          <span className="quest-stat__label">Reward:</span>
+                          <span className="quest-stat__value">2-15 CHUNK</span>
+                        </div>
+                        <div className="quest-stat">
+                          <span className="quest-stat__label">Cost:</span>
+                          <span className="quest-stat__value quest-stat__value--cost">5 CHUNK</span>
+                        </div>
+                      </div>
+                      <button
+                        className="game-btn game-btn--quest game-btn--quest-premium"
+                        onClick={() => handlePlayOnChain("v2")}
+                        disabled={isWalletBusy || !account?.address || characterDailyPlays >= 3}
+                      >
+                        {isPlayBusy && playMode === "v2" ? (
+                          "Starting..."
+                        ) : characterDailyPlays >= 3 ? (
+                          "Daily Limit Reached"
+                        ) : (
+                          <>
+                            <Play size={14} /> Accept Premium Quest (5 CHUNK)
+                          </>
+                        )}
+                      </button>
+                      {characterDailyPlays >= 3 && (
+                        <div className="quest-card__note">
+                          Reset at next epoch (~24h)
+                        </div>
+                      )}
+                    </div>
 
+                    {/* Restore Session */}
+                    <div className="quest-restore flex justify-center items-center">
+                      <button
+                        className="game-btn game-btn--restore flex justify-center items-center gap-2"
+                        onClick={() => setShowRestoreModal(true)}
+                      >
+                        <RefreshCw size={12} /> Restore Previous Quest
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {/* Messages */}
                 {playNotice && <div className="game-info__note">{playNotice}</div>}
                 {playError && <div className="game-info__error">{playError}</div>}
                 {claimError && <div className="game-info__error">{claimError}</div>}

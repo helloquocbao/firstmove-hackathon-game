@@ -1057,6 +1057,11 @@ export function startGame(mapData?: GameMapData) {
       "player",
     ]);
 
+    // Notify that player has spawned and is ready
+    wait(0.1, () => {
+      window.dispatchEvent(new CustomEvent("game:player-spawned"));
+    });
+
     /* ================= HEALTH BAR UI ================= */
 
     const HP_BAR_WIDTH = 180;

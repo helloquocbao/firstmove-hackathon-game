@@ -331,7 +331,33 @@ export default function EditorGame() {
       console.log("Image URL:", result.url);
       console.log("Full result:", result);
 
-      setNotice(`Chunk image uploaded! URL: ${result.url}`);
+      // Get the chunk object ID to update image URL on-chain
+      const chunkObjectId = await fetchChunkObjectId(
+        activeChunkCoords.cx,
+        activeChunkCoords.cy,
+      );
+
+      if (!chunkObjectId) {
+        setNotice(
+          `Image uploaded to Walrus but chunk not found on-chain. URL: ${result.url}`,
+        );
+        return;
+      }
+
+      // Update image URL on-chain
+      setNotice("Saving image URL on-chain...");
+      await runTx(
+        "Update Image",
+        (tx) => {
+          tx.moveCall({
+            target: `${PACKAGE_ID}::world::set_image_url`,
+            arguments: [tx.object(chunkObjectId), tx.pure.string(result.url)],
+          });
+        },
+        () => {
+          setNotice(`Chunk image updated on-chain! URL: ${result.url}`);
+        },
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error("Failed to upload chunk image:", error);

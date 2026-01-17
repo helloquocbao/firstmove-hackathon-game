@@ -53,7 +53,8 @@ export default function GamePage() {
   const [pendingMapData, setPendingMapData] = useState(null);
 
   // Pre-start modal (local/off-chain entry)
-  const [showStartModal, setShowStartModal] = useState(true);
+  const [showStartModal, setShowStartModal] = useState(false);
+  const [showResumeModal, setShowResumeModal] = useState(false);
   const [startMode, setStartMode] = useState("player"); // Default to off-chain
   const [startModalError, setStartModalError] = useState("");
   const [startChainMode, setStartChainMode] = useState("v1");
@@ -651,10 +652,26 @@ export default function GamePage() {
 
       localStorage.setItem("CUSTOM_MAP", JSON.stringify(mapData));
       setPendingMapData(mapData);
-      if (isGameStarted) {
+      setLoadedChunks(chunkEntries.length);
+
+      // Auto-start logic: check for pending on-chain task
+      if (!isGameStarted) {
+        const storedPlay = loadPlayState();
+        const storedTarget = loadPlayTarget();
+        const hasPendingTask = storedPlay?.playId && !storedTarget?.found;
+
+        if (hasPendingTask) {
+          // Show resume modal for pending task
+          setShowResumeModal(true);
+        } else {
+          // Auto-start in offchain mode
+          setIsGameStarted(true);
+          startGame(mapData);
+        }
+      } else {
+        // Game already started, just reload
         startGame(mapData);
       }
-      setLoadedChunks(chunkEntries.length);
     } catch (error) {
       setMapLoadError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -904,7 +921,7 @@ export default function GamePage() {
 
   async function handleStartModalAction() {
     setStartModalError("");
-    
+
     // Default to player mode - auto start off-chain
     if (startMode === "player") {
       if (isMapLoading) {
@@ -954,6 +971,22 @@ export default function GamePage() {
     }
     setShowStartModal(false);
     void handlePlayOnChain(startChainMode);
+  }
+
+  function handleResumeTask() {
+    setShowResumeModal(false);
+    setIsGameStarted(true);
+    reloadGameFromStorage();
+  }
+
+  function handleStartFresh() {
+    clearPlayState();
+    setPlayId("");
+    setPlayKeyHex("");
+    setIsKeyFound(false);
+    setShowResumeModal(false);
+    setIsGameStarted(true);
+    reloadGameFromStorage();
   }
 
   async function handleClaimOnChain() {
@@ -1331,7 +1364,7 @@ export default function GamePage() {
                 {/* Available Quests */}
                 {!playId && (
                   <>
-                    
+
                     {/* Free Quest */}
                     <div className="quest-card quest-card--free">
                       <div className="quest-card__header">
@@ -1531,6 +1564,45 @@ export default function GamePage() {
             </div>
           </div>
         )}
+
+      {/* Resume Task Modal */}
+      {showResumeModal && (
+        <div className="game-modal-overlay" style={{ zIndex: 9998 }}>
+          <div className="game-modal" style={{
+            border: '4px solid #59b7ff',
+            borderRadius: '12px',
+            backgroundColor: 'rgba(13, 33, 55, 0.98)',
+            maxWidth: '400px',
+            textAlign: 'center',
+            padding: '24px'
+          }}>
+            <div style={{ color: '#59b7ff', marginBottom: '16px' }}>
+              <RefreshCw size={48} style={{ display: 'block', margin: '0 auto 12px auto' }} />
+              <h2 style={{ fontSize: '20px', marginBottom: '8px' }}>Pending On-Chain Task</h2>
+            </div>
+            <div style={{ color: '#b8daff', fontSize: '14px', marginBottom: '24px', lineHeight: 1.5 }}>
+              You have an incomplete on-chain game session.<br />
+              Would you like to continue or start fresh in offline mode?
+            </div>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+              <button
+                className="game-btn game-btn--primary"
+                onClick={handleResumeTask}
+                style={{ padding: '12px 24px' }}
+              >
+                Continue Task
+              </button>
+              <button
+                className="game-btn"
+                onClick={handleStartFresh}
+                style={{ padding: '12px 24px' }}
+              >
+                Start Fresh
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Create Character Modal */}
       {showCreateCharacterModal && (

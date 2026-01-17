@@ -67,7 +67,7 @@ export default function LandingPage() {
           style={{ "--delay": "0s" }}
         >
           <div className="brand">
-            <div className="brand__mark">CW</div>
+            <img src="https://ik.imagekit.io/huubao/chunk_coin.png" alt="logo" className="w-12 h-12" />
             <div>
               <div className="brand__name">Chunk World</div>
               <div className="brand__tag">Sky Adventures on Sui</div>

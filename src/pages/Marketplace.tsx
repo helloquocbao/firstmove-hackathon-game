@@ -5,22 +5,26 @@ import {
   useCurrentAccount,
   useSignAndExecuteTransaction,
 } from "@mysten/dapp-kit";
-import { PACKAGE_ID, REWARD_COIN_TYPE } from "../chain/config";
+import {
+  PACKAGE_ID,
+  REWARD_COIN_TYPE,
+  WORLD_REGISTRY_ID,
+} from "../chain/config";
 import { suiClient } from "../chain/suiClient";
-import { 
-  Upload, 
-  RefreshCw, 
-  X, 
-  Wallet, 
-  Mountain, 
-  MapPin, 
-  Check, 
-  ShoppingCart, 
-  RotateCcw, 
-  Coins, 
-  Package, 
+import {
+  Upload,
+  RefreshCw,
+  X,
+  Wallet,
+  Mountain,
+  MapPin,
+  Check,
+  ShoppingCart,
+  RotateCcw,
+  Coins,
+  Package,
   Link2,
-  Loader
+  Loader,
 } from "lucide-react";
 import { WalletHeader } from "../components";
 import { useRewardBalance } from "../hooks/useRewardBalance";
@@ -33,10 +37,23 @@ type ListingEventFields = {
   price?: number | string;
 };
 
+type SoldEventFields = ListingEventFields & {
+  buyer?: string;
+};
+
 type Listing = {
   worldId: string;
   chunkId: string;
   seller: string;
+  price: number;
+  timestamp: number;
+};
+
+type SoldEvent = {
+  worldId: string;
+  chunkId: string;
+  seller: string;
+  buyer: string;
   price: number;
   timestamp: number;
 };
@@ -69,6 +86,12 @@ export default function Marketplace() {
   const [status, setStatus] = useState("");
   const [listingStatus, setListingStatus] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [worldId, setWorldId] = useState("");
+  const [pendingProceeds, setPendingProceeds] = useState(0);
+  const [withdrawInput, setWithdrawInput] = useState("");
+  const [withdrawStatus, setWithdrawStatus] = useState("");
+  const [isWithdrawing, setIsWithdrawing] = useState(false);
+  const [recentSales, setRecentSales] = useState<SoldEvent[]>([]);
 
   const chunkType = PACKAGE_ID ? `${PACKAGE_ID}::world::ChunkNFT` : "";
 
@@ -76,6 +99,22 @@ export default function Marketplace() {
     void refreshListings();
     void loadOwnedChunks();
   }, [account?.address]);
+
+  useEffect(() => {
+    void loadWorldId();
+  }, []);
+
+  useEffect(() => {
+    void loadPendingProceeds();
+  }, [account?.address, worldId]);
+
+  useEffect(() => {
+    if (worldId) return;
+    const fallbackWorld = ownedChunks[0]?.worldId || listings[0]?.worldId || "";
+    if (fallbackWorld) {
+      setWorldId(fallbackWorld);
+    }
+  }, [worldId, ownedChunks, listings]);
 
   const listedChunkIds = useMemo(
     () => new Set(listings.map((item) => item.chunkId)),
@@ -110,7 +149,39 @@ export default function Marketplace() {
       ]);
 
       const closedIds = new Set<string>();
-      [...soldPage.data, ...delistedPage.data].forEach((event) => {
+      const soldEvents = soldPage.data
+        .map((event) => {
+          const detail = event.parsedJson as SoldEventFields;
+          const chunkId =
+            typeof detail.chunk_id === "string"
+              ? detail.chunk_id
+              : typeof detail.chunkId === "string"
+                ? detail.chunkId
+                : "";
+          const worldId =
+            typeof detail.world_id === "string"
+              ? detail.world_id
+              : typeof detail.worldId === "string"
+                ? detail.worldId
+                : "";
+          const price = Number(detail.price ?? 0);
+          if (!chunkId || !worldId || !price) return null;
+          return {
+            chunkId,
+            worldId,
+            price,
+            seller: detail.seller || "",
+            buyer: detail.buyer || "",
+            timestamp: event.timestampMs ?? Date.now(),
+          } satisfies SoldEvent;
+        })
+        .filter((item): item is SoldEvent => Boolean(item));
+
+      [...soldEvents, ...delistedPage.data].forEach((event) => {
+        if (typeof event === "object" && event && "chunkId" in event) {
+          closedIds.add((event as SoldEvent).chunkId);
+          return;
+        }
         const parsed = event.parsedJson as Record<string, unknown>;
         const candidate =
           typeof parsed.chunk_id === "string"
@@ -122,6 +193,16 @@ export default function Marketplace() {
           closedIds.add(candidate);
         }
       });
+
+      if (account?.address) {
+        setRecentSales(
+          soldEvents
+            .filter((sale) => sale.seller === account.address)
+            .slice(0, 6),
+        );
+      } else {
+        setRecentSales([]);
+      }
 
       const parsed = listedPage.data
         .map((event) => {
@@ -208,6 +289,69 @@ export default function Marketplace() {
       setPriceInputs((prev) => ({ ...defaults, ...prev }));
     } catch (error) {
       console.error("Failed to load chunks:", error);
+    }
+  }
+
+  async function loadWorldId() {
+    if (!WORLD_REGISTRY_ID) {
+      setWorldId("");
+      return "";
+    }
+
+    try {
+      const result = await suiClient.getObject({
+        id: WORLD_REGISTRY_ID,
+        options: { showContent: true },
+      });
+
+      const content = result.data?.content;
+      if (!content || content.dataType !== "moveObject") {
+        setWorldId("");
+        return "";
+      }
+
+      const fields = normalizeMoveFields(content.fields);
+      const worldField =
+        fields.world_id ?? fields.worldId ?? fields.world ?? undefined;
+      if (!worldField) {
+        setWorldId("");
+        return "";
+      }
+
+      const optionFields = normalizeMoveFields(worldField);
+      const vec = optionFields.vec;
+      const id = Array.isArray(vec) && vec.length > 0 ? String(vec[0]) : "";
+      setWorldId(id);
+      return id;
+    } catch (error) {
+      console.error("Failed to load world id:", error);
+      setWorldId("");
+      return "";
+    }
+  }
+
+  async function loadPendingProceeds() {
+    if (!account?.address || !worldId || !PACKAGE_ID) {
+      setPendingProceeds(0);
+      return;
+    }
+
+    try {
+      const result = await suiClient.getDynamicFieldObject({
+        parentId: worldId,
+        name: {
+          type: `${PACKAGE_ID}::world::SellerPayoutKey`,
+          value: { owner: account.address },
+        },
+      });
+
+      const content = result.data?.content;
+
+      console.log(`content`, content);
+
+      setPendingProceeds(Number(content?.fields?.value?.fields?.balance ?? 0));
+    } catch (error) {
+      setPendingProceeds(0);
     }
   }
 
@@ -336,6 +480,52 @@ export default function Marketplace() {
     }
   }
 
+  async function handleWithdrawProceeds() {
+    if (!account?.address) {
+      setWithdrawStatus("Please connect wallet before withdrawing.");
+      return;
+    }
+
+    if (!worldId) {
+      setWithdrawStatus("World not loaded yet. Try again in a moment.");
+      return;
+    }
+
+    const amount = Number(withdrawInput);
+    if (!amount || amount <= 0) {
+      setWithdrawStatus("Amount must be greater than 0.");
+      return;
+    }
+
+    if (amount > pendingProceeds) {
+      setWithdrawStatus("Amount exceeds your available proceeds.");
+      return;
+    }
+
+    setWithdrawStatus("Submitting withdrawal...");
+    setIsWithdrawing(true);
+    try {
+      const tx = new Transaction();
+      tx.moveCall({
+        target: `${PACKAGE_ID}::world::withdraw_proceeds`,
+        arguments: [tx.object(worldId), tx.pure.u64(amount)],
+      });
+
+      await signAndExecute({ transaction: tx });
+      setWithdrawStatus("Withdrawal submitted! Syncing balance...");
+
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      await loadPendingProceeds();
+      setWithdrawInput("");
+      setWithdrawStatus("Withdrawal complete! Funds sent to your wallet.");
+    } catch (error) {
+      console.error("Withdraw failed:", error);
+      setWithdrawStatus("Failed to withdraw proceeds. Check console.");
+    } finally {
+      setIsWithdrawing(false);
+    }
+  }
+
   const cardBackground = (seed: string) => {
     const hash = seed
       .split("")
@@ -408,7 +598,15 @@ export default function Marketplace() {
                 onClick={refreshListings}
                 disabled={isLoading}
               >
-                {isLoading ? <><Loader size={14} /> Loading...</> : <><RefreshCw size={14} /> Refresh</>}
+                {isLoading ? (
+                  <>
+                    <Loader size={14} /> Loading...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw size={14} /> Refresh
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -436,7 +634,9 @@ export default function Marketplace() {
               </div>
 
               <div className="marketplace-wallet-info">
-                <div className="marketplace-wallet-info__icon"><Wallet size={18} /></div>
+                <div className="marketplace-wallet-info__icon">
+                  <Wallet size={18} />
+                </div>
                 <div className="marketplace-wallet-info__details">
                   <div className="marketplace-wallet-info__label">
                     Connected Wallet
@@ -448,6 +648,208 @@ export default function Marketplace() {
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Withdraw Proceeds Section */}
+        <section className="marketplace-section marketplace-section--payouts">
+          <div className="marketplace-section__header">
+            <h2 className="marketplace-section__title">
+              <span className="marketplace-section__title-icon">
+                <Coins size={18} />
+              </span>
+              Seller Payouts
+            </h2>
+            <div className="marketplace-section__actions">
+              <button
+                className="btn--ghost"
+                onClick={loadPendingProceeds}
+                disabled={isWithdrawing || isPending}
+              >
+                {isWithdrawing || isPending ? (
+                  <>
+                    <Loader size={12} /> Syncing...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw size={12} /> Sync Balance
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          <div className="marketplace-payouts">
+            <div className="marketplace-payout-card">
+              <div className="marketplace-payout-card__header">
+                <div>
+                  <div className="marketplace-payout-card__eyebrow">
+                    Withdraw flow
+                  </div>
+                  <h3 className="marketplace-payout-card__title">
+                    Ready to cash out
+                  </h3>
+                </div>
+                <div className="marketplace-payout-card__badge">
+                  {pendingProceeds > 0
+                    ? "Proceeds available"
+                    : "No proceeds yet"}
+                </div>
+              </div>
+
+              <div className="marketplace-payout-card__balance">
+                <div className="marketplace-payout-card__balance-label">
+                  Pending proceeds
+                </div>
+                <div className="marketplace-payout-card__balance-value">
+                  {pendingProceeds} CHUNK
+                </div>
+                <div className="marketplace-payout-card__balance-meta">
+                  World:{" "}
+                  {worldId
+                    ? truncateAddress(worldId, 8, 6)
+                    : WORLD_REGISTRY_ID
+                      ? "Loading..."
+                      : "Missing registry id"}
+                </div>
+              </div>
+
+              <div className="marketplace-payout-steps">
+                <div
+                  className={`marketplace-payout-step ${recentSales.length > 0 ? "is-complete" : ""}`}
+                >
+                  <div className="marketplace-payout-step__icon">
+                    <Check size={14} />
+                  </div>
+                  <div>
+                    <div className="marketplace-payout-step__title">
+                      Sale confirmed
+                    </div>
+                    <div className="marketplace-payout-step__text">
+                      On-chain ChunkSoldEvent recorded.
+                    </div>
+                  </div>
+                </div>
+                <div
+                  className={`marketplace-payout-step ${pendingProceeds > 0 ? "is-complete" : ""}`}
+                >
+                  <div className="marketplace-payout-step__icon">
+                    <Coins size={14} />
+                  </div>
+                  <div>
+                    <div className="marketplace-payout-step__title">
+                      Proceeds pending
+                    </div>
+                    <div className="marketplace-payout-step__text">
+                      Funds are waiting in the seller vault.
+                    </div>
+                  </div>
+                </div>
+                <div
+                  className={`marketplace-payout-step ${pendingProceeds === 0 ? "" : "is-active"}`}
+                >
+                  <div className="marketplace-payout-step__icon">
+                    <Wallet size={14} />
+                  </div>
+                  <div>
+                    <div className="marketplace-payout-step__title">
+                      Withdraw to wallet
+                    </div>
+                    <div className="marketplace-payout-step__text">
+                      Choose an amount and confirm the transaction.
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="marketplace-payout-card__actions">
+                <div className="marketplace-payout-inputs">
+                  <input
+                    className="marketplace-price-input"
+                    type="number"
+                    min="1"
+                    value={withdrawInput}
+                    onChange={(event) => setWithdrawInput(event.target.value)}
+                    placeholder="Withdraw amount (CHUNK)"
+                  />
+                  <button
+                    className="btn--ghost"
+                    onClick={() => setWithdrawInput(String(pendingProceeds))}
+                    disabled={pendingProceeds === 0}
+                  >
+                    Max
+                  </button>
+                </div>
+                <button
+                  className="btn--primary"
+                  onClick={handleWithdrawProceeds}
+                  disabled={isWithdrawing || isPending || pendingProceeds === 0}
+                >
+                  {isWithdrawing || isPending ? (
+                    <>
+                      <Loader size={12} /> Processing...
+                    </>
+                  ) : (
+                    <>
+                      <Wallet size={12} /> Withdraw
+                    </>
+                  )}
+                </button>
+                {withdrawStatus && (
+                  <div className="marketplace-status marketplace-status--neutral">
+                    {withdrawStatus}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="marketplace-payout-feed">
+              <div className="marketplace-payout-feed__header">
+                <div>
+                  <div className="marketplace-payout-feed__eyebrow">
+                    Recent sales
+                  </div>
+                  <h3 className="marketplace-payout-feed__title">
+                    Your latest sold chunks
+                  </h3>
+                </div>
+                <div className="marketplace-payout-feed__count">
+                  {recentSales.length} events
+                </div>
+              </div>
+              {recentSales.length > 0 ? (
+                <div className="marketplace-payout-feed__list">
+                  {recentSales.map((sale) => (
+                    <div
+                      key={`${sale.chunkId}-${sale.timestamp}`}
+                      className="marketplace-payout-feed__item"
+                    >
+                      <div className="marketplace-payout-feed__item-main">
+                        <span className="marketplace-payout-feed__label">
+                          Chunk
+                        </span>
+                        <span className="marketplace-payout-feed__value">
+                          {truncateAddress(sale.chunkId, 8, 6)}
+                        </span>
+                      </div>
+                      <div className="marketplace-payout-feed__item-meta">
+                        <span>{sale.price} CHUNK</span>
+                        <span>Buyer: {truncateAddress(sale.buyer, 6, 4)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="marketplace-empty marketplace-empty--compact">
+                  <div className="marketplace-empty__icon">
+                    <Package size={28} />
+                  </div>
+                  <p className="marketplace-empty__text">
+                    No sales yet. List a chunk to start earning CHUNK.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -464,7 +866,9 @@ export default function Marketplace() {
             >
               <div className="marketplace-modal__header">
                 <h2 className="marketplace-modal__title">
-                  <span className="marketplace-section__title-icon"><Mountain size={18} /></span>
+                  <span className="marketplace-section__title-icon">
+                    <Mountain size={18} />
+                  </span>
                   Your Chunks
                 </h2>
                 <button
@@ -500,7 +904,8 @@ export default function Marketplace() {
                               </div>
                             )}
                             <div className="marketplace-owned-card__coords">
-                              <MapPin size={12} /> ({chunk.cx ?? "?"}, {chunk.cy ?? "?"})
+                              <MapPin size={12} /> ({chunk.cx ?? "?"},{" "}
+                              {chunk.cy ?? "?"})
                             </div>
                           </div>
                           <div className="marketplace-owned-card__body">
@@ -553,9 +958,15 @@ export default function Marketplace() {
                                   isPending || listedChunkIds.has(chunk.chunkId)
                                 }
                               >
-                                {listedChunkIds.has(chunk.chunkId)
-                                  ? <><Check size={12} /> Listed</>
-                                  : <><Upload size={12} /> List for Sale</>}
+                                {listedChunkIds.has(chunk.chunkId) ? (
+                                  <>
+                                    <Check size={12} /> Listed
+                                  </>
+                                ) : (
+                                  <>
+                                    <Upload size={12} /> List for Sale
+                                  </>
+                                )}
                               </button>
                             </div>
                           </div>
@@ -564,7 +975,9 @@ export default function Marketplace() {
                     </div>
                   ) : (
                     <div className="marketplace-empty">
-                      <div className="marketplace-empty__icon"><Package size={32} /></div>
+                      <div className="marketplace-empty__icon">
+                        <Package size={32} />
+                      </div>
                       <p className="marketplace-empty__text">
                         You don't have any chunks yet. Explore the game to mint
                         your first chunk!
@@ -573,7 +986,9 @@ export default function Marketplace() {
                   )
                 ) : (
                   <div className="marketplace-empty">
-                    <div className="marketplace-empty__icon"><Link2 size={32} /></div>
+                    <div className="marketplace-empty__icon">
+                      <Link2 size={32} />
+                    </div>
                     <p className="marketplace-empty__text">
                       Connect your wallet to view your chunks
                     </p>
@@ -594,7 +1009,9 @@ export default function Marketplace() {
         <section className="marketplace-section">
           <div className="marketplace-section__header">
             <h2 className="marketplace-section__title">
-              <span className="marketplace-section__title-icon"><ShoppingCart size={18} /></span>
+              <span className="marketplace-section__title-icon">
+                <ShoppingCart size={18} />
+              </span>
               Available Listings
             </h2>
             <div className="marketplace-section__actions">
@@ -603,7 +1020,15 @@ export default function Marketplace() {
                 onClick={refreshListings}
                 disabled={isLoading}
               >
-                {isLoading ? <><Loader size={12} /> Loading...</> : <><RefreshCw size={12} /> Refresh</>}
+                {isLoading ? (
+                  <>
+                    <Loader size={12} /> Loading...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw size={12} /> Refresh
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -671,7 +1096,15 @@ export default function Marketplace() {
                         onClick={() => handleDelist(listing)}
                         disabled={isPending}
                       >
-                        {isPending ? <><Loader size={12} /> Processing...</> : <><RotateCcw size={12} /> Delist</>}
+                        {isPending ? (
+                          <>
+                            <Loader size={12} /> Processing...
+                          </>
+                        ) : (
+                          <>
+                            <RotateCcw size={12} /> Delist
+                          </>
+                        )}
                       </button>
                     ) : (
                       <button
@@ -679,7 +1112,15 @@ export default function Marketplace() {
                         onClick={() => handleBuy(listing)}
                         disabled={isPending}
                       >
-                        {isPending ? <><Loader size={12} /> Processing...</> : <><Coins size={12} /> Buy Now</>}
+                        {isPending ? (
+                          <>
+                            <Loader size={12} /> Processing...
+                          </>
+                        ) : (
+                          <>
+                            <Coins size={12} /> Buy Now
+                          </>
+                        )}
                       </button>
                     )}
                   </div>
@@ -688,7 +1129,9 @@ export default function Marketplace() {
             </div>
           ) : (
             <div className="marketplace-empty">
-              <div className="marketplace-empty__icon"><Mountain size={32} /></div>
+              <div className="marketplace-empty__icon">
+                <Mountain size={32} />
+              </div>
               <p className="marketplace-empty__text">
                 No chunks currently listed for sale. Be the first to list!
               </p>
@@ -719,4 +1162,24 @@ function extractObjectId(value: unknown): string {
     }
   }
   return "";
+}
+
+function normalizeMoveFields(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object") return {};
+  const record = value as Record<string, unknown>;
+  if (record.fields && typeof record.fields === "object") {
+    return record.fields as Record<string, unknown>;
+  }
+  return record;
+}
+
+function parseBalanceAmount(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(0, Math.floor(value));
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isFinite(parsed)) return Math.max(0, parsed);
+  }
+  return 0;
 }

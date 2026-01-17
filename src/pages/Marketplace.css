@@ -523,6 +523,232 @@
   gap: 12px;
 }
 
+/* ===== PAYOUTS ===== */
+.marketplace-section--payouts {
+  gap: 32px;
+}
+
+.marketplace-payouts {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  gap: 24px;
+}
+
+.marketplace-payout-card,
+.marketplace-payout-feed {
+  background: rgba(13, 33, 55, 0.85);
+  border-radius: 22px;
+  border: 1px solid rgba(126, 184, 232, 0.18);
+  padding: 24px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+}
+
+.marketplace-payout-card__header,
+.marketplace-payout-feed__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.marketplace-payout-card__eyebrow,
+.marketplace-payout-feed__eyebrow {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: rgba(126, 184, 232, 0.7);
+  margin-bottom: 6px;
+}
+
+.marketplace-payout-card__title,
+.marketplace-payout-feed__title {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--land-text, #e8f4ff);
+  font-family: var(--font-serif, serif);
+}
+
+.marketplace-payout-card__badge {
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(89, 183, 255, 0.15);
+  border: 1px solid rgba(89, 183, 255, 0.35);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--land-accent, #59b7ff);
+  font-family: var(--font-mono, monospace);
+}
+
+.marketplace-payout-card__balance {
+  padding: 18px 20px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(89, 183, 255, 0.15), rgba(246, 164, 75, 0.08));
+  border: 1px solid rgba(126, 184, 232, 0.2);
+  margin-bottom: 20px;
+}
+
+.marketplace-payout-card__balance-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: rgba(126, 184, 232, 0.7);
+  margin-bottom: 8px;
+  font-family: var(--font-mono, monospace);
+}
+
+.marketplace-payout-card__balance-value {
+  font-size: 1.9rem;
+  font-weight: 700;
+  color: #f6a44b;
+}
+
+.marketplace-payout-card__balance-meta {
+  margin-top: 8px;
+  font-size: 12px;
+  color: rgba(232, 244, 255, 0.6);
+  font-family: var(--font-mono, monospace);
+}
+
+.marketplace-payout-steps {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.marketplace-payout-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(126, 184, 232, 0.12);
+  transition: all 0.3s ease;
+}
+
+.marketplace-payout-step__icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  background: rgba(89, 183, 255, 0.2);
+  border: 1px solid rgba(89, 183, 255, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--land-accent, #59b7ff);
+}
+
+.marketplace-payout-step__title {
+  font-weight: 600;
+  color: var(--land-text, #e8f4ff);
+  margin-bottom: 4px;
+}
+
+.marketplace-payout-step__text {
+  font-size: 12px;
+  color: rgba(232, 244, 255, 0.6);
+}
+
+.marketplace-payout-step.is-complete {
+  border-color: rgba(74, 222, 128, 0.4);
+  background: rgba(74, 222, 128, 0.12);
+}
+
+.marketplace-payout-step.is-complete .marketplace-payout-step__icon {
+  color: #4ade80;
+  border-color: rgba(74, 222, 128, 0.5);
+  background: rgba(74, 222, 128, 0.2);
+}
+
+.marketplace-payout-step.is-active {
+  border-color: rgba(246, 164, 75, 0.4);
+  background: rgba(246, 164, 75, 0.12);
+}
+
+.marketplace-payout-step.is-active .marketplace-payout-step__icon {
+  color: #f6a44b;
+  border-color: rgba(246, 164, 75, 0.5);
+  background: rgba(246, 164, 75, 0.2);
+}
+
+.marketplace-payout-card__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.marketplace-payout-inputs {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.marketplace-payout-inputs .marketplace-price-input {
+  flex: 1;
+}
+
+.marketplace-payout-feed__count {
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(126, 184, 232, 0.1);
+  border: 1px solid rgba(126, 184, 232, 0.2);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: rgba(232, 244, 255, 0.7);
+}
+
+.marketplace-payout-feed__list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.marketplace-payout-feed__item {
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(126, 184, 232, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.marketplace-payout-feed__item-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.marketplace-payout-feed__label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(126, 184, 232, 0.7);
+}
+
+.marketplace-payout-feed__value {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--land-text, #e8f4ff);
+}
+
+.marketplace-payout-feed__item-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: rgba(232, 244, 255, 0.6);
+  font-family: var(--font-mono, monospace);
+}
+
+.marketplace-empty--compact {
+  padding: 32px 16px;
+}
+
 .btn--ghost {
   display: inline-flex;
   align-items: center;
@@ -993,6 +1219,10 @@
   .marketplace-stats__grid {
     grid-template-columns: repeat(2, 1fr);
   }
+
+  .marketplace-payouts {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 600px) {
@@ -1033,4 +1263,25 @@
     flex-direction: column;
     align-items: flex-start;
   }
+
+  .marketplace-payout-inputs {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .marketplace-payout-feed__item-meta {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+.marketplace-status--neutral {
+  background: rgba(89, 183, 255, 0.1);
+  border-color: rgba(89, 183, 255, 0.3);
+  color: rgba(232, 244, 255, 0.8);
+}
+
+.marketplace-status--neutral::before {
+  content: "i";
+  font-family: var(--font-mono, monospace);
 }

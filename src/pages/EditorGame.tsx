@@ -57,18 +57,14 @@ export default function EditorGame() {
   const [selectedDeco, setSelectedDeco] = useState<number>(NO_DECO_ID);
   const [grid, setGrid] = useState<number[][]>(() => createDefaultGrid());
   const [decoGrid, setDecoGrid] = useState<number[][]>(() =>
-    createDefaultDecoGrid()
+    createDefaultDecoGrid(),
   );
   const [chunkOwners, setChunkOwners] = useState<ChunkOwners>(() =>
-    createOwnersForGrid(createDefaultGrid(), userId)
+    createOwnersForGrid(createDefaultGrid(), userId),
   );
   const [activeChunkKey, setActiveChunkKey] = useState<string>("");
   const [worldId, setWorldId] = useState<string>("");
-  const [worldOverride, setWorldOverride] = useState<string>("");
   const [chainError, setChainError] = useState<string>("");
-  const [worldList, setWorldList] = useState<string[]>([]);
-  const [worldListError, setWorldListError] = useState("");
-  const [isWorldListLoading, setIsWorldListLoading] = useState(false);
   const [txDigest, setTxDigest] = useState<string>("");
   const [txError, setTxError] = useState<string>("");
   const [busyAction, setBusyAction] = useState<string>("");
@@ -78,11 +74,16 @@ export default function EditorGame() {
   const [loadedChunks, setLoadedChunks] = useState<number | null>(null);
 
   // Default image URL for claimed chunks
-  const DEFAULT_CHUNK_IMAGE_URL = "https://ik.imagekit.io/huubao/image_chunk.png";
+  const DEFAULT_CHUNK_IMAGE_URL =
+    "https://ik.imagekit.io/huubao/image_chunk.png";
   const [isChunkModalOpen, setIsChunkModalOpen] = useState(false);
   const [hoveredChunkKey, setHoveredChunkKey] = useState("");
   const [hoveredChunkId, setHoveredChunkId] = useState("");
   const [isHoverIdLoading, setIsHoverIdLoading] = useState(false);
+  const [isClaimHelpOpen, setIsClaimHelpOpen] = useState(false);
+
+  // Compute current chunk price for UI display
+  const claimChunkPrice = (loadedChunks ?? 0) < 20 ? (loadedChunks ?? 0) * 5 : 95;
 
   // World creation params
   const [worldName, setWorldName] = useState<string>("");
@@ -100,6 +101,9 @@ export default function EditorGame() {
   const [playSeal, setPlaySeal] = useState<string>("");
   const [playKey, setPlayKey] = useState<string>("");
   const [rewardCoinId, setRewardCoinId] = useState<string>("");
+
+  // Admin check
+  const [adminCapOwner, setAdminCapOwner] = useState<string>("");
 
   const chunkIdCacheRef = useRef<Record<string, string>>({});
   const hoverRequestRef = useRef(0);
@@ -125,25 +129,48 @@ export default function EditorGame() {
 
   useEffect(() => {
     void (async () => {
-      const id = await loadWorldId();
-      await loadWorldList(id);
+      // Load world list and auto-load first world
+      await loadWorldListAndMap();
     })();
   }, [WORLD_REGISTRY_ID]);
 
+  // Fetch AdminCap owner to check if connected wallet is admin
+  useEffect(() => {
+    async function fetchAdminCapOwner() {
+      if (!ADMIN_CAP_ID) {
+        setAdminCapOwner("");
+        return;
+      }
+      try {
+        const resp = await suiClient.getObject({
+          id: ADMIN_CAP_ID,
+          options: { showOwner: true },
+        });
+        const owner = resp.data?.owner;
+        if (owner && typeof owner === "object" && "AddressOwner" in owner) {
+          setAdminCapOwner(owner.AddressOwner as string);
+        } else {
+          setAdminCapOwner("");
+        }
+      } catch (e) {
+        console.error("Failed to fetch AdminCap owner:", e);
+        setAdminCapOwner("");
+      }
+    }
+    void fetchAdminCapOwner();
+  }, []);
+
   const gridWidth = grid[0]?.length ?? 0;
   const gridHeight = grid.length;
-  const worldIdValue = worldOverride.trim() || worldId;
+  const worldIdValue = worldId;
   const isConnected = Boolean(account?.address);
   const isBusy = isPending || Boolean(busyAction);
   const walletAddress = account?.address ?? "";
+  const isAdmin = Boolean(walletAddress && adminCapOwner && walletAddress === adminCapOwner);
   const isOwnerMatch = (owner?: string) =>
     Boolean(
-      owner && (owner === userId || (walletAddress && owner === walletAddress))
+      owner && (owner === userId || (walletAddress && owner === walletAddress)),
     );
-  const worldListOptions = useMemo(
-    () => worldList.filter((id) => id && id !== worldId),
-    [worldList, worldId]
-  );
 
   useEffect(() => {
     chunkIdCacheRef.current = {};
@@ -207,10 +234,10 @@ export default function EditorGame() {
   const hoveredChunkIdDisplay = !hoveredChunkKey
     ? "-"
     : !worldIdValue || !PACKAGE_ID
-    ? "not available"
-    : isHoverIdLoading
-    ? "loading..."
-    : hoveredChunkId || "not found";
+      ? "not available"
+      : isHoverIdLoading
+        ? "loading..."
+        : hoveredChunkId || "not found";
   const activeChunkIdDisplay =
     activeChunkKey && activeChunkKey === hoveredChunkKey
       ? hoveredChunkIdDisplay
@@ -234,7 +261,7 @@ export default function EditorGame() {
   function handleTilePointerDown(
     event: React.PointerEvent<HTMLButtonElement>,
     x: number,
-    y: number
+    y: number,
   ) {
     if (event.button !== 0) return;
     clickTileRef.current = { x, y };
@@ -296,7 +323,14 @@ export default function EditorGame() {
 
           // Draw base tile
           if (tileDef) {
-            await drawImageToCanvas(ctx, tileDef.image, x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+            await drawImageToCanvas(
+              ctx,
+              tileDef.image,
+              x * TILE_SIZE,
+              y * TILE_SIZE,
+              TILE_SIZE,
+              TILE_SIZE,
+            );
           } else {
             ctx.fillStyle = VOID_TILE_COLOR;
             ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
@@ -304,7 +338,14 @@ export default function EditorGame() {
 
           // Draw decoration on top
           if (decoDef) {
-            await drawImageToCanvas(ctx, decoDef.image, x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+            await drawImageToCanvas(
+              ctx,
+              decoDef.image,
+              x * TILE_SIZE,
+              y * TILE_SIZE,
+              TILE_SIZE,
+              TILE_SIZE,
+            );
           }
         }
       }
@@ -317,11 +358,36 @@ export default function EditorGame() {
 
       console.log("=== Walrus Upload Result ===");
       console.log("Blob ID:", result.blobId);
-      console.log("Patch ID:", result.patchId);
       console.log("Image URL:", result.url);
       console.log("Full result:", result);
 
-      setNotice(`Chunk image uploaded! URL: ${result.url}`);
+      // Get the chunk object ID to update image URL on-chain
+      const chunkObjectId = await fetchChunkObjectId(
+        activeChunkCoords.cx,
+        activeChunkCoords.cy,
+      );
+
+      if (!chunkObjectId) {
+        setNotice(
+          `Image uploaded to Walrus but chunk not found on-chain. URL: ${result.url}`,
+        );
+        return;
+      }
+
+      // Update image URL on-chain
+      setNotice("Saving image URL on-chain...");
+      await runTx(
+        "Update Image",
+        (tx) => {
+          tx.moveCall({
+            target: `${PACKAGE_ID}::world::set_image_url`,
+            arguments: [tx.object(chunkObjectId), tx.pure.string(result.url)],
+          });
+        },
+        () => {
+          setNotice(`Chunk image updated on-chain! URL: ${result.url}`);
+        },
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error("Failed to upload chunk image:", error);
@@ -471,17 +537,70 @@ export default function EditorGame() {
     }
   }
 
-  async function refreshWorldAndMap() {
+  async function loadWorldListAndMap() {
     setMapLoadError("");
-    const override = worldOverride.trim();
-    const registryId = await loadWorldId();
-    await loadWorldList(registryId);
-    const targetId = override || registryId;
-    if (!targetId) {
-      setMapLoadError("World id missing.");
-      return;
+    setChainError("");
+    setIsMapLoading(true);
+
+    try {
+      const ids: string[] = [];
+
+      // First try to get from registry
+      const registryId = await loadWorldId();
+      if (registryId) ids.push(registryId);
+
+      // Then query WorldCreatedEvent for more worlds
+      if (PACKAGE_ID) {
+        const eventType = `${PACKAGE_ID}::world::WorldCreatedEvent`;
+        let cursor: { txDigest: string; eventSeq: string } | null | undefined = null;
+        let hasNextPage = true;
+        let rounds = 0;
+
+        while (hasNextPage && rounds < 6) {
+          const page = await suiClient.queryEvents({
+            query: { MoveEventType: eventType },
+            cursor: cursor ?? undefined,
+            limit: 50,
+            order: "descending",
+          });
+
+          for (const event of page.data) {
+            const parsed = event.parsedJson;
+            if (!parsed || typeof parsed !== "object") continue;
+            const record = parsed as Record<string, unknown>;
+            const id =
+              typeof record.world_id === "string"
+                ? record.world_id
+                : typeof record.worldId === "string"
+                  ? record.worldId
+                  : "";
+            if (id && !ids.includes(id)) ids.push(id);
+          }
+
+          cursor = page.nextCursor ?? null;
+          hasNextPage = page.hasNextPage;
+          rounds += 1;
+        }
+      }
+
+      // Auto-load the first world in the list
+      if (ids.length > 0) {
+        const firstWorldId = ids[0];
+        setWorldId(firstWorldId);
+        setIsMapLoading(false);
+        await loadWorldMap(firstWorldId);
+      } else {
+        setNotice("No worlds found. Create one first.");
+        setIsMapLoading(false);
+      }
+    } catch (error) {
+      setChainError(error instanceof Error ? error.message : String(error));
+      setIsMapLoading(false);
     }
-    await loadWorldMap(targetId);
+  }
+
+  async function refreshWorldAndMap() {
+    await loadWorldListAndMap();
   }
 
   async function loadWorldMap(targetWorldId: string) {
@@ -503,7 +622,7 @@ export default function EditorGame() {
 
       const chunkEntries = await resolveChunkEntries(
         targetWorldId,
-        fieldEntries
+        fieldEntries,
       );
       console.log("Resolved chunk entries:", chunkEntries);
 
@@ -541,13 +660,13 @@ export default function EditorGame() {
         console.log("Chunk fields:", { cx: entry.cx, cy: entry.cy, fields });
 
         const tiles = normalizeMoveVector(fields.tiles).map((tile) =>
-          normalizeTileId(clampU8(parseU32Value(tile) ?? 0, 255))
+          normalizeTileId(clampU8(parseU32Value(tile) ?? 0, 255)),
         );
         const rawDecorations = fields.decorations;
         console.log("Raw decorations:", rawDecorations);
 
         const decorations = normalizeMoveVector(rawDecorations ?? []).map(
-          (deco) => normalizeDecoId(clampU8(parseU32Value(deco) ?? 0, 255))
+          (deco) => normalizeDecoId(clampU8(parseU32Value(deco) ?? 0, 255)),
         );
 
         console.log("Parsed decorations:", decorations);
@@ -582,62 +701,10 @@ export default function EditorGame() {
     }
   }
 
-  async function loadWorldList(registryId?: string) {
-    setWorldListError("");
-    setIsWorldListLoading(true);
-
-    try {
-      const ids = new Set<string>();
-      const regId = registryId ?? worldId;
-      if (regId) ids.add(regId);
-      const overrideId = worldOverride.trim();
-      if (overrideId) ids.add(overrideId);
-
-      if (PACKAGE_ID) {
-        const eventType = `${PACKAGE_ID}::world::WorldCreatedEvent`;
-        let cursor: string | null | undefined = null;
-        let hasNextPage = true;
-        let rounds = 0;
-
-        while (hasNextPage && rounds < 6) {
-          const page = await suiClient.queryEvents({
-            query: { MoveEventType: eventType },
-            cursor: cursor ?? undefined,
-            limit: 50,
-            order: "descending",
-          });
-
-          for (const event of page.data) {
-            const parsed = event.parsedJson;
-            if (!parsed || typeof parsed !== "object") continue;
-            const record = parsed as Record<string, unknown>;
-            const id =
-              typeof record.world_id === "string"
-                ? record.world_id
-                : typeof record.worldId === "string"
-                ? record.worldId
-                : "";
-            if (id) ids.add(id);
-          }
-
-          cursor = page.nextCursor ?? null;
-          hasNextPage = page.hasNextPage;
-          rounds += 1;
-        }
-      }
-
-      setWorldList([...ids]);
-    } catch (error) {
-      setWorldListError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsWorldListLoading(false);
-    }
-  }
-
   async function fetchChunkObjectId(
     cx: number,
     cy: number,
-    options?: { silent?: boolean }
+    options?: { silent?: boolean },
   ) {
     const silent = options?.silent ?? false;
     if (!silent) setTxError("");
@@ -690,7 +757,7 @@ export default function EditorGame() {
   async function runTx(
     label: string,
     build: (tx: Transaction) => void | Promise<void>,
-    onSuccess?: () => void
+    onSuccess?: () => void,
   ) {
     setTxError("");
     setTxDigest("");
@@ -745,7 +812,7 @@ export default function EditorGame() {
           ],
         });
       },
-      () => loadWorldId()
+      () => loadWorldId(),
     );
   }
 
@@ -766,26 +833,27 @@ export default function EditorGame() {
     const decorations = Array(CHUNK_SIZE * CHUNK_SIZE).fill(0);
     const imageUrl = DEFAULT_CHUNK_IMAGE_URL;
 
-    // Calculate chunk price: chunk 0 = free, chunk N costs N * 5 coins
-    const CHUNK_PRICE_INCREMENT = 5;
+    // Calculate chunk price:
+    // - If chunks < 20: fee = chunks * 5 (chunk 0 = free, chunk 1 = 5, ...)
+    // - If chunks >= 20: fee = 95 (fixed)
     const currentChunkCount = loadedChunks ?? 0;
-    const chunkPrice = currentChunkCount * CHUNK_PRICE_INCREMENT;
+    const chunkPrice = currentChunkCount < 20 ? currentChunkCount * 5 : 95;
 
     // Check if user has enough coins before proceeding
     const coins = await suiClient.getCoins({
       owner: account!.address,
       coinType: REWARD_COIN_TYPE,
     });
-    
+
     const totalBalance = coins.data.reduce(
       (sum, c) => sum + BigInt(c.balance),
-      BigInt(0)
+      BigInt(0),
     );
 
     if (chunkPrice > 0 && totalBalance < BigInt(chunkPrice)) {
       setTxError(
         `Insufficient REWARD_COIN. Need ${chunkPrice} coins but you have ${totalBalance}. ` +
-        `Chunk #${currentChunkCount + 1} costs ${chunkPrice} coins.`
+          `Chunk #${currentChunkCount + 1} costs ${chunkPrice} coins.`,
       );
       return;
     }
@@ -802,7 +870,7 @@ export default function EditorGame() {
             const [firstCoin, ...restCoins] = allCoinIds;
             tx.mergeCoins(
               tx.object(firstCoin),
-              restCoins.map((id) => tx.object(id))
+              restCoins.map((id) => tx.object(id)),
             );
             paymentCoin = tx.object(firstCoin);
           } else {
@@ -829,7 +897,7 @@ export default function EditorGame() {
           ],
         });
       },
-      () => refreshWorldAndMap()
+      () => refreshWorldAndMap(),
     );
   }
 
@@ -852,7 +920,7 @@ export default function EditorGame() {
       setNotice(
         owner
           ? `Chunk owned by ${owner}. Your wallet: ${walletAddress}`
-          : "Chunk has no owner on-chain."
+          : "Chunk has no owner on-chain.",
       );
       return;
     }
@@ -864,7 +932,7 @@ export default function EditorGame() {
 
     if (!resolved) {
       setNotice(
-        "Chunk not found on-chain. Please claim it first using 'Claim chunk' button."
+        "Chunk not found on-chain. Please claim it first using 'Claim chunk' button.",
       );
       return;
     }
@@ -885,7 +953,7 @@ export default function EditorGame() {
       },
       () => {
         setNotice("Chunk saved on-chain.");
-      }
+      },
     );
   }
 
@@ -941,7 +1009,7 @@ export default function EditorGame() {
       () => {
         setNotice("Character created!");
         void loadCharacter();
-      }
+      },
     );
   }
 
@@ -1007,7 +1075,7 @@ export default function EditorGame() {
           const [firstCoin, ...restCoins] = allCoinIds;
           tx.mergeCoins(
             tx.object(firstCoin),
-            restCoins.map((id) => tx.object(id))
+            restCoins.map((id) => tx.object(id)),
           );
           feeCoin = tx.object(firstCoin);
         } else {
@@ -1028,7 +1096,7 @@ export default function EditorGame() {
       async () => {
         setNotice("Play started! Save your key to claim reward later.");
         // Lấy play_id từ event hoặc state (simplified - user phải nhập manual)
-      }
+      },
     );
   }
 
@@ -1074,7 +1142,7 @@ export default function EditorGame() {
       },
       async () => {
         setNotice("Free play started! Save your key to claim reward later.");
-      }
+      },
     );
   }
 
@@ -1124,7 +1192,7 @@ export default function EditorGame() {
         void loadCharacter();
         setPlayId("");
         setPlayKey("");
-      }
+      },
     );
   }
 
@@ -1144,7 +1212,7 @@ export default function EditorGame() {
         <header className="editor-header">
           <div>
             <div className="editor-eyebrow">Skyworld editor</div>
-            <h1 className="editor-title">Stone chunk workshop</h1>
+            <h1 className="editor-title">CHUNK MAP EDITOR</h1>
             <p className="editor-subtitle">
               Carve floating chunks and push updates on-chain.
             </p>
@@ -1172,12 +1240,12 @@ export default function EditorGame() {
                 <div>Editing: {activeChunkLabel}</div>
               </div>
 
-              <div className="panel__rows">
+              <div className="panel__rows text-nowrap overflow-hidden">
                 <div>
                   <span>Hover chunk</span>
                   <span>{hoveredChunkLabel}</span>
                 </div>
-                <div>
+                <div className="w-full truncate">
                   <span>Chunk id</span>
                   <span
                     className="panel__value panel__value--wrap"
@@ -1197,7 +1265,7 @@ export default function EditorGame() {
 
             <div className="panel">
               <div className="panel__title">Paint Layer</div>
-              <div className="editor-layer-toggle">
+              <div className="flex gap-2">
                 <button
                   className={`btn ${
                     paintLayer === "base" ? "btn--primary" : "btn--outline"
@@ -1258,9 +1326,26 @@ export default function EditorGame() {
               </div>
             )}
 
-            <div className="panel">
+            {/* <div className="panel">
               <div className="panel__title">Game</div>
               <div className="editor-actions">
+                <button
+                  className="btn btn--dark"
+                  onClick={() => navigate("/game")}
+               >
+                  Play
+                </button> 
+              </div>
+            </div> */}
+          </aside>
+
+          <section className="editor-main">
+            <div className="panel panel--main">
+              <div className="flex justify-between items-center">
+                <div>
+                  <div className="panel__eyebrow">Stone canvas</div>
+                  <div className="panel__title">Chunk grid</div>
+                </div>
                 <button
                   className="btn btn--dark"
                   onClick={() => navigate("/game")}
@@ -1268,19 +1353,19 @@ export default function EditorGame() {
                   Play
                 </button>
               </div>
-            </div>
-          </aside>
 
-          <section className="editor-main">
-            <div className="panel panel--main">
-              <div className="panel__eyebrow">Stone canvas</div>
-              <div className="panel__title">Chunk grid</div>
+              {isMapLoading && (
+                <div className="editor-loading-overlay">
+                  <div className="editor-loading-spinner" />
+                  <div className="editor-loading-text">Loading world map...</div>
+                </div>
+              )}
 
               <div
                 ref={gridWrapRef}
                 className={`editor-grid-wrap ${
                   isDraggingGrid ? "is-dragging" : ""
-                }`}
+                } ${isMapLoading ? "is-loading" : ""}`}
                 onPointerDown={handleGridPointerDown}
                 onPointerMove={handleGridPointerMove}
                 onPointerUp={handleGridPointerEnd}
@@ -1299,6 +1384,7 @@ export default function EditorGame() {
                       const chunkKey = getChunkKeyFromTile(x, y);
                       const owner = chunkOwners[chunkKey];
                       const isOwned = isOwnerMatch(owner);
+                      const isOtherOwned = Boolean(owner) && !isOwned;
                       const isSelected = isOwned && chunkKey === activeChunkKey;
                       const isLocked =
                         isChunkModalOpen &&
@@ -1320,13 +1406,19 @@ export default function EditorGame() {
                           key={`${x}-${y}`}
                           className={`editor-tile ${
                             isOwned ? "is-owned" : ""
-                          } ${isSelected ? "is-selected" : ""} ${
-                            isLocked ? "is-locked" : ""
-                          } ${isHovered ? "is-hovered" : ""} ${
-                            isHovered && isTopEdge ? "chunk-edge-top" : ""
-                          } ${isHovered && isBottomEdge ? "chunk-edge-bottom" : ""} ${
-                            isHovered && isLeftEdge ? "chunk-edge-left" : ""
-                          } ${isHovered && isRightEdge ? "chunk-edge-right" : ""}`}
+                          } ${isOtherOwned ? "is-other-owned" : ""} ${
+                            isSelected ? "is-selected" : ""
+                          } ${isLocked ? "is-locked" : ""} ${
+                            isHovered ? "is-hovered" : ""
+                          } ${isHovered && isTopEdge ? "chunk-edge-top" : ""} ${
+                            isHovered && isBottomEdge ? "chunk-edge-bottom" : ""
+                          } ${isHovered && isLeftEdge ? "chunk-edge-left" : ""} ${
+                            isHovered && isRightEdge ? "chunk-edge-right" : ""
+                          } ${isOwned && isTopEdge ? "owned-edge-top" : ""} ${
+                            isOwned && isBottomEdge ? "owned-edge-bottom" : ""
+                          } ${isOwned && isLeftEdge ? "owned-edge-left" : ""} ${
+                            isOwned && isRightEdge ? "owned-edge-right" : ""
+                          }`}
                           onPointerDown={(event) =>
                             handleTilePointerDown(event, x, y)
                           }
@@ -1340,7 +1432,7 @@ export default function EditorGame() {
                           }}
                         />
                       );
-                    })
+                    }),
                   )}
                 </div>
               </div>
@@ -1349,8 +1441,8 @@ export default function EditorGame() {
 
           <aside className="editor-side">
             <div className="panel">
-              <div className="panel__title">Chain config</div>
-              <div className="panel__rows">
+              <div className="panel__title">World Info</div>
+              {/* <div className="panel__rows">
                 <div>
                   <span>RPC</span>
                   <span>{shortAddress(SUI_RPC_URL) || "not set"}</span>
@@ -1375,35 +1467,20 @@ export default function EditorGame() {
                   <span>Chunks</span>
                   <span>{loadedChunks === null ? "-" : loadedChunks}</span>
                 </div>
-              </div>
+              </div> */}
 
               <div className="panel__field">
-                <label>World list</label>
-                <select
-                  value={worldOverride}
-                  onChange={(event) => setWorldOverride(event.target.value)}
-                  disabled={isWorldListLoading}
-                >
-                  <option value="">
-                    {worldId
-                      ? `Use registry (${shortAddress(worldId)})`
-                      : "Use registry (empty)"}
-                  </option>
-                  {worldListOptions.map((id) => (
-                    <option key={id} value={id}>
-                      {id}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="panel__field">
-                <label>World override</label>
-                <input
-                  value={worldOverride}
-                  onChange={(event) => setWorldOverride(event.target.value)}
-                  placeholder="0x..."
-                />
+                <label>World status</label>
+                <div className="panel__rows">
+                  <div>
+                    <span>World ID</span>
+                    <span className="panel__value--wrap">{shortAddress(worldId) || "not loaded"}</span>
+                  </div>
+                  <div>
+                    <span>Chunks</span>
+                    <span>{loadedChunks === null ? "-" : loadedChunks}</span>
+                  </div>
+                </div>
               </div>
 
               <div className="panel__actions">
@@ -1417,25 +1494,34 @@ export default function EditorGame() {
               </div>
 
               {chainError && <div className="panel__error">{chainError}</div>}
-              {worldListError && (
-                <div className="panel__error">{worldListError}</div>
-              )}
               {mapLoadError && (
                 <div className="panel__error">{mapLoadError}</div>
               )}
             </div>
 
             <div className="panel">
-              <div className="panel__title">Claim chunk</div>
-              <p className="panel__desc">
-                Uses tiles from the selected chunk. Location is random but must
-                touch existing chunks. First chunk is free, then costs increase
-                by 5 coins per chunk (max 20 chunks).
-              </p>
+              <div className="panel__header-row">
+                <div className="panel__title">Claim chunk</div>
+                <button
+                  className="panel__help-btn"
+                  onClick={() => setIsClaimHelpOpen(true)}
+                  title="How pricing works"
+                >
+                  ?
+                </button>
+              </div>
               <div className="panel__rows">
                 <div>
                   <span>Selected chunk</span>
                   <span>{activeChunkLabel}</span>
+                </div>
+                <div>
+                  <span>Current chunks</span>
+                  <span>{loadedChunks ?? 0}</span>
+                </div>
+                <div>
+                  <span>Next chunk price</span>
+                  <span>{claimChunkPrice} CHUNK</span>
                 </div>
               </div>
               <button
@@ -1443,63 +1529,145 @@ export default function EditorGame() {
                 onClick={claimChunkOnChain}
                 disabled={isBusy || !isConnected}
               >
-                {busyAction === "Claim chunk" ? "Claiming..." : "Claim chunk"}
+                {busyAction === "Claim chunk"
+                  ? "Claiming..."
+                  : claimChunkPrice === 0
+                    ? "Claim chunk (Free)"
+                    : `Claim chunk (${claimChunkPrice} CHUNK)`}
               </button>
               {txError && <div className="panel__error">{txError}</div>}
             </div>
 
-            <div className="panel">
-              <div className="panel__title">World admin</div>
-              <p className="panel__desc">
-                Create the shared world object using the admin cap.
-              </p>
-              <div className="panel__field">
-                <label>World Name (1-64 chars)</label>
-                <input
-                  className="input"
-                  type="text"
-                  maxLength={64}
-                  value={worldName}
-                  onChange={(e) => setWorldName(e.target.value)}
-                  placeholder="Enter world name..."
-                />
-              </div>
-              <div className="panel__field">
-                <label>Difficulty (1-9)</label>
-                <select
-                  className="input"
-                  value={worldDifficulty}
-                  onChange={(e) => setWorldDifficulty(Number(e.target.value))}
+            {isAdmin && (
+              <div className="panel">
+                <div className="panel__title">World admin</div>
+                <p className="panel__desc">
+                  Create the shared world object using the admin cap.
+                </p>
+                <div className="panel__field">
+                  <label>World Name (1-64 chars)</label>
+                  <input
+                    className="input"
+                    type="text"
+                    maxLength={64}
+                    value={worldName}
+                    onChange={(e) => setWorldName(e.target.value)}
+                    placeholder="Enter world name..."
+                  />
+                </div>
+                <div className="panel__field">
+                  <label>Difficulty (1-9)</label>
+                  <select
+                    className="input"
+                    value={worldDifficulty}
+                    onChange={(e) => setWorldDifficulty(Number(e.target.value))}
+                  >
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="panel__field">
+                  <label>Required Power</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    value={worldRequiredPower}
+                    onChange={(e) =>
+                      setWorldRequiredPower(Number(e.target.value))
+                    }
+                  />
+                </div>
+                <button
+                  className="btn btn--primary"
+                  onClick={createWorldOnChain}
+                  disabled={isBusy || !isConnected}
                 >
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => (
-                    <option key={d} value={d}>
-                      {d}
-                    </option>
-                  ))}
-                </select>
+                  {busyAction === "Create world" ? "Creating..." : "Create world"}
+                </button>
               </div>
-              <div className="panel__field">
-                <label>Required Power</label>
-                <input
-                  className="input"
-                  type="number"
-                  min="0"
-                  value={worldRequiredPower}
-                  onChange={(e) =>
-                    setWorldRequiredPower(Number(e.target.value))
-                  }
-                />
-              </div>
-              <button
-                className="btn btn--primary"
-                onClick={createWorldOnChain}
-                disabled={isBusy || !isConnected}
-              >
-                {busyAction === "Create world" ? "Creating..." : "Create world"}
-              </button>
-            </div>
+            )}
           </aside>
         </div>
+
+        {/* Claim Chunk Help Modal */}
+        {isClaimHelpOpen && (
+          <div className="editor-modal">
+            <div
+              className="editor-modal__backdrop"
+              onClick={() => setIsClaimHelpOpen(false)}
+            />
+            <div
+              className="editor-modal__panel editor-modal__panel--sm"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Chunk pricing help"
+            >
+              <div className="editor-modal__header">
+                <div>
+                  <div className="panel__eyebrow">Help</div>
+                  <div className="editor-modal__title">Chunk Pricing</div>
+                </div>
+                <button
+                  className="btn btn--outline editor-modal__close"
+                  onClick={() => setIsClaimHelpOpen(false)}
+                >
+                  Close
+                </button>
+              </div>
+              <div className="help-modal__body">
+                <p>
+                  Claiming chunks expands the world! Each chunk gives you a{" "}
+                  {CHUNK_SIZE}×{CHUNK_SIZE} tile area to customize.
+                </p>
+                <div className="help-modal__pricing">
+                  <div className="help-modal__pricing-title">Pricing Table</div>
+                  <table className="help-modal__table">
+                    <thead>
+                      <tr>
+                        <th>Chunk #</th>
+                        <th>Price (CHUNK)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>1</td>
+                        <td>Free</td>
+                      </tr>
+                      <tr>
+                        <td>2</td>
+                        <td>5</td>
+                      </tr>
+                      <tr>
+                        <td>3</td>
+                        <td>10</td>
+                      </tr>
+                      <tr>
+                        <td>...</td>
+                        <td>...</td>
+                      </tr>
+                      <tr>
+                        <td>20</td>
+                        <td>95</td>
+                      </tr>
+                      <tr>
+                        <td>21+</td>
+                        <td>95 (max)</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p className="help-modal__note">
+                  <strong>Formula:</strong> Chunks 1-19 cost (chunk# - 1) × 5.
+                  From chunk 20 onward, price stays fixed at 95 CHUNK.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {isChunkModalOpen && activeChunkCoords && (
           <div className="editor-modal">
@@ -1531,7 +1699,7 @@ export default function EditorGame() {
                 <div>
                   <span>Chunk id</span>
                   <span
-                    className="panel__value panel__value--wrap"
+                    className="panel__value panel__value--wrap truncate"
                     title={activeChunkIdDisplay}
                   >
                     {activeChunkIdDisplay}
@@ -1566,7 +1734,7 @@ export default function EditorGame() {
                             }}
                           />
                         );
-                      })
+                      }),
                     )}
                   </div>
                 </div>
@@ -1574,7 +1742,7 @@ export default function EditorGame() {
                 <div className="editor-modal__tiles">
                   <div className="panel__title">Paint Layer</div>
                   <div
-                    className="editor-layer-toggle"
+                    className="flex gap-2"
                     style={{ marginBottom: "12px" }}
                   >
                     <button
@@ -1729,7 +1897,7 @@ function drawImageToCanvas(
   x: number,
   y: number,
   width: number,
-  height: number
+  height: number,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -1915,7 +2083,7 @@ async function fetchAllDynamicFields(parentId: string) {
 
 async function resolveChunkEntries(
   worldId: string,
-  fields: Array<{ name: { type?: string; value?: unknown } }>
+  fields: Array<{ name: { type?: string; value?: unknown } }>,
 ) {
   const results = await Promise.allSettled(
     fields.map(async (field) => {
@@ -1940,22 +2108,22 @@ async function resolveChunkEntries(
       const chunkId = extractObjectId(fieldFields.value);
       if (!chunkId) return null;
       return { ...coords, chunkId };
-    })
+    }),
   );
 
   return results
     .filter(
       (
-        result
+        result,
       ): result is PromiseFulfilledResult<{
         cx: number;
         cy: number;
         chunkId: string;
-      }> => result.status === "fulfilled"
+      }> => result.status === "fulfilled",
     )
     .map((result) => result.value)
     .filter((entry): entry is { cx: number; cy: number; chunkId: string } =>
-      Boolean(entry)
+      Boolean(entry),
     );
 }
 

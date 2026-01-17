@@ -83,6 +83,7 @@ export default function EditorGame() {
   const [isHoverIdLoading, setIsHoverIdLoading] = useState(false);
 
   // World creation params
+  const [worldName, setWorldName] = useState<string>("");
   const [worldDifficulty, setWorldDifficulty] = useState<number>(1);
   const [worldRequiredPower, setWorldRequiredPower] = useState<number>(0);
 
@@ -411,7 +412,10 @@ export default function EditorGame() {
     setActiveChunkKey("");
 
     try {
+      console.log("Loading world map for:", targetWorldId);
       const fieldEntries = await fetchAllDynamicFields(targetWorldId);
+      console.log("Dynamic field entries:", fieldEntries);
+
       if (fieldEntries.length === 0) {
         setNotice("World has no chunks yet.");
         setLoadedChunks(0);
@@ -422,6 +426,8 @@ export default function EditorGame() {
         targetWorldId,
         fieldEntries
       );
+      console.log("Resolved chunk entries:", chunkEntries);
+
       if (chunkEntries.length === 0) {
         setNotice("No chunk entries found.");
         setLoadedChunks(0);
@@ -604,7 +610,7 @@ export default function EditorGame() {
 
   async function runTx(
     label: string,
-    build: (tx: Transaction) => void,
+    build: (tx: Transaction) => void | Promise<void>,
     onSuccess?: () => void
   ) {
     setTxError("");
@@ -624,7 +630,7 @@ export default function EditorGame() {
     try {
       const tx = new Transaction();
 
-      build(tx);
+      await build(tx);
       const result = await signAndExecute({ transaction: tx });
 
       setTxDigest(result.digest);
@@ -641,6 +647,10 @@ export default function EditorGame() {
       setTxError("Missing registry or admin cap id.");
       return;
     }
+    if (!worldName.trim() || worldName.trim().length > 64) {
+      setTxError("World name is required (1-64 chars).");
+      return;
+    }
 
     await runTx(
       "Create world",
@@ -650,6 +660,7 @@ export default function EditorGame() {
           arguments: [
             tx.object(WORLD_REGISTRY_ID),
             tx.object(ADMIN_CAP_ID),
+            tx.pure.string(worldName.trim()),
             tx.pure.u8(worldDifficulty),
             tx.pure.u64(worldRequiredPower),
           ],
@@ -665,30 +676,61 @@ export default function EditorGame() {
       setTxError("World id missing.");
       return;
     }
+    if (!REWARD_VAULT_ID) {
+      setTxError("Missing reward vault id.");
+      return;
+    }
 
-    // if (!activeChunkKey) {
-    //   setTxError("Select a chunk to use as tile template.");
-    //   return;
-    // }
-
-    const [cxRaw, cyRaw] = activeChunkKey.split(",");
-    const cx = parseCoord(cxRaw ?? "0");
-    const cy = parseCoord(cyRaw ?? "0");
-    const tiles = buildChunkTiles(grid, cx, cy);
-    const decorations = buildChunkDecorations(decoGrid, cx, cy);
+    // Default tiles: all land tiles (DEFAULT_FLOOR)
+    const tiles = Array(CHUNK_SIZE * CHUNK_SIZE).fill(DEFAULT_FLOOR);
+    // Default decorations: no decorations
+    const decorations = Array(CHUNK_SIZE * CHUNK_SIZE).fill(0);
     const imageUrl = claimImageUrl.trim();
 
     await runTx(
       "Claim chunk",
-      (tx) => {
+      async (tx) => {
+        // Get or create a payment coin (first chunk is free, but we need to pass a coin anyway)
+        // The contract will handle returning excess if not needed
+        let paymentCoin;
+
+        // Try to get existing reward coins
+        const coins = await suiClient.getCoins({
+          owner: account!.address,
+          coinType: REWARD_COIN_TYPE,
+        });
+
+        if (coins.data.length > 0) {
+          // Merge all coins into one if needed and use it
+          const allCoinIds = coins.data.map((c) => c.coinObjectId);
+          if (allCoinIds.length > 1) {
+            const [firstCoin, ...restCoins] = allCoinIds;
+            tx.mergeCoins(
+              tx.object(firstCoin),
+              restCoins.map((id) => tx.object(id))
+            );
+            paymentCoin = tx.object(firstCoin);
+          } else {
+            paymentCoin = tx.object(allCoinIds[0]);
+          }
+        } else {
+          // No coins - create a zero coin (for first chunk which is free)
+          paymentCoin = tx.moveCall({
+            target: "0x2::coin::zero",
+            typeArguments: [REWARD_COIN_TYPE],
+          });
+        }
+
         tx.moveCall({
           target: `${PACKAGE_ID}::world::claim_chunk`,
           arguments: [
             tx.object(worldIdValue),
+            tx.object(REWARD_VAULT_ID),
             tx.object(RANDOM_OBJECT_ID),
             tx.pure.string(imageUrl),
             tx.pure.vector("u8", tiles),
             tx.pure.vector("u8", decorations),
+            paymentCoin,
           ],
         });
       },
@@ -836,10 +878,6 @@ export default function EditorGame() {
       setTxError("Character not found. Create one first.");
       return;
     }
-    if (!rewardCoinId) {
-      setTxError("No reward coins found. Get some first.");
-      return;
-    }
 
     // Generate random key and seal
     const keyBytes = new Uint8Array(32);
@@ -855,15 +893,39 @@ export default function EditorGame() {
     setPlayKey(keyHex);
 
     await runTx(
-      "Play",
-      (tx) => {
+      "Play (5 coins)",
+      async (tx) => {
+        // Get fee coin (PLAY_FEE = 5)
+        const coins = await suiClient.getCoins({
+          owner: account!.address,
+          coinType: REWARD_COIN_TYPE,
+        });
+
+        if (coins.data.length === 0) {
+          throw new Error("No reward coins found. Get some first.");
+        }
+
+        // Merge all coins if needed
+        const allCoinIds = coins.data.map((c) => c.coinObjectId);
+        let feeCoin;
+        if (allCoinIds.length > 1) {
+          const [firstCoin, ...restCoins] = allCoinIds;
+          tx.mergeCoins(
+            tx.object(firstCoin),
+            restCoins.map((id) => tx.object(id))
+          );
+          feeCoin = tx.object(firstCoin);
+        } else {
+          feeCoin = tx.object(allCoinIds[0]);
+        }
+
         tx.moveCall({
-          target: `${PACKAGE_ID}::world::play`,
+          target: `${PACKAGE_ID}::world::play_v2`,
           arguments: [
             tx.object(worldIdValue),
             tx.object(REWARD_VAULT_ID),
             tx.object(characterId),
-            tx.object(rewardCoinId),
+            feeCoin,
             tx.pure.vector("u8", sealArray),
           ],
         });
@@ -871,6 +933,52 @@ export default function EditorGame() {
       async () => {
         setNotice("Play started! Save your key to claim reward later.");
         // Lấy play_id từ event hoặc state (simplified - user phải nhập manual)
+      }
+    );
+  }
+
+  async function playFreeOnChain() {
+    if (!worldIdValue) {
+      setTxError("World id missing.");
+      return;
+    }
+    if (!REWARD_VAULT_ID) {
+      setTxError("Missing reward vault id.");
+      return;
+    }
+    if (!characterId) {
+      setTxError("Character not found. Create one first.");
+      return;
+    }
+
+    // Generate random key and seal
+    const keyBytes = new Uint8Array(32);
+    crypto.getRandomValues(keyBytes);
+    const keyHex = Array.from(keyBytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+
+    // Compute SHA3-256 seal
+    const sealBytes = await crypto.subtle.digest("SHA-256", keyBytes);
+    const sealArray = Array.from(new Uint8Array(sealBytes));
+
+    setPlayKey(keyHex);
+
+    await runTx(
+      "Free Play (2/day)",
+      (tx) => {
+        tx.moveCall({
+          target: `${PACKAGE_ID}::world::play_v1`,
+          arguments: [
+            tx.object(worldIdValue),
+            tx.object(REWARD_VAULT_ID),
+            tx.object(characterId),
+            tx.pure.vector("u8", sealArray),
+          ],
+        });
+      },
+      async () => {
+        setNotice("Free play started! Save your key to claim reward later.");
       }
     );
   }
@@ -1216,6 +1324,17 @@ export default function EditorGame() {
                 Create the shared world object using the admin cap.
               </p>
               <div className="panel__field">
+                <label>World Name (1-64 chars)</label>
+                <input
+                  className="input"
+                  type="text"
+                  maxLength={64}
+                  value={worldName}
+                  onChange={(e) => setWorldName(e.target.value)}
+                  placeholder="Enter world name..."
+                />
+              </div>
+              <div className="panel__field">
                 <label>Difficulty (1-9)</label>
                 <select
                   className="input"
@@ -1254,7 +1373,8 @@ export default function EditorGame() {
               <div className="panel__title">Claim chunk</div>
               <p className="panel__desc">
                 Uses tiles from the selected chunk. Location is random but must
-                touch existing chunks.
+                touch existing chunks. First chunk is free, then costs increase
+                by 5 coins per chunk (max 20 chunks).
               </p>
               <div className="panel__rows">
                 <div>
@@ -1387,16 +1507,25 @@ export default function EditorGame() {
               </div>
               <div
                 className="panel__actions"
-                style={{ gap: "8px", display: "flex" }}
+                style={{ gap: "8px", display: "flex", flexWrap: "wrap" }}
               >
+                <button
+                  className="btn btn--outline"
+                  onClick={playFreeOnChain}
+                  disabled={isBusy || !isConnected || !characterId}
+                >
+                  {busyAction === "Free Play (2/day)"
+                    ? "Playing..."
+                    : "Free Play (2/day)"}
+                </button>
                 <button
                   className="btn btn--primary"
                   onClick={playOnChain}
-                  disabled={
-                    isBusy || !isConnected || !characterId || !rewardCoinId
-                  }
+                  disabled={isBusy || !isConnected || !characterId}
                 >
-                  {busyAction === "Play" ? "Playing..." : "Play (5 coins)"}
+                  {busyAction === "Play (5 coins)"
+                    ? "Playing..."
+                    : "Play (5 coins, 3/day)"}
                 </button>
                 <button
                   className="btn btn--dark"
@@ -1796,15 +1925,20 @@ async function resolveChunkEntries(
 ) {
   const results = await Promise.allSettled(
     fields.map(async (field) => {
-      if (field.name?.type && !field.name.type.includes("ChunkKey")) {
-        return null;
-      }
+      // Skip if no type or not a ChunkKey
+      const fieldType = field.name?.type;
+      if (!fieldType) return null;
+      if (!fieldType.includes("ChunkKey")) return null;
+
       const coords = extractChunkCoords(field.name?.value);
       if (!coords) return null;
 
       const fieldObject = await suiClient.getDynamicFieldObject({
         parentId: worldId,
-        name: field.name,
+        name: {
+          type: fieldType,
+          value: field.name.value,
+        },
       });
       const content = fieldObject.data?.content;
       if (!content || content.dataType !== "moveObject") return null;

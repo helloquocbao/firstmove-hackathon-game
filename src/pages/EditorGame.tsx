@@ -1184,12 +1184,12 @@ export default function EditorGame() {
                 <div>Editing: {activeChunkLabel}</div>
               </div>
 
-              <div className="panel__rows">
+              <div className="panel__rows text-nowrap overflow-hidden">
                 <div>
                   <span>Hover chunk</span>
                   <span>{hoveredChunkLabel}</span>
                 </div>
-                <div>
+                <div className="w-full truncate">
                   <span>Chunk id</span>
                   <span
                     className="panel__value panel__value--wrap"
@@ -1328,6 +1328,7 @@ export default function EditorGame() {
                       const chunkKey = getChunkKeyFromTile(x, y);
                       const owner = chunkOwners[chunkKey];
                       const isOwned = isOwnerMatch(owner);
+                      const isOtherOwned = Boolean(owner) && !isOwned;
                       const isSelected = isOwned && chunkKey === activeChunkKey;
                       const isLocked =
                         isChunkModalOpen &&
@@ -1349,13 +1350,19 @@ export default function EditorGame() {
                           key={`${x}-${y}`}
                           className={`editor-tile ${
                             isOwned ? "is-owned" : ""
-                          } ${isSelected ? "is-selected" : ""} ${
-                            isLocked ? "is-locked" : ""
-                          } ${isHovered ? "is-hovered" : ""} ${
-                            isHovered && isTopEdge ? "chunk-edge-top" : ""
-                          } ${isHovered && isBottomEdge ? "chunk-edge-bottom" : ""} ${
-                            isHovered && isLeftEdge ? "chunk-edge-left" : ""
-                          } ${isHovered && isRightEdge ? "chunk-edge-right" : ""}`}
+                          } ${isOtherOwned ? "is-other-owned" : ""} ${
+                            isSelected ? "is-selected" : ""
+                          } ${isLocked ? "is-locked" : ""} ${
+                            isHovered ? "is-hovered" : ""
+                          } ${isHovered && isTopEdge ? "chunk-edge-top" : ""} ${
+                            isHovered && isBottomEdge ? "chunk-edge-bottom" : ""
+                          } ${isHovered && isLeftEdge ? "chunk-edge-left" : ""} ${
+                            isHovered && isRightEdge ? "chunk-edge-right" : ""
+                          } ${isOwned && isTopEdge ? "owned-edge-top" : ""} ${
+                            isOwned && isBottomEdge ? "owned-edge-bottom" : ""
+                          } ${isOwned && isLeftEdge ? "owned-edge-left" : ""} ${
+                            isOwned && isRightEdge ? "owned-edge-right" : ""
+                          }`}
                           onPointerDown={(event) =>
                             handleTilePointerDown(event, x, y)
                           }
@@ -1634,7 +1641,7 @@ export default function EditorGame() {
                 <div>
                   <span>Chunk id</span>
                   <span
-                    className="panel__value panel__value--wrap"
+                    className="panel__value panel__value--wrap truncate"
                     title={activeChunkIdDisplay}
                   >
                     {activeChunkIdDisplay}

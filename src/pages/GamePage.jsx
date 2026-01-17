@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  ConnectButton,
   useCurrentAccount,
   useSignAndExecuteTransaction,
 } from "@mysten/dapp-kit";
@@ -23,6 +22,7 @@ import {
   normalizeDecoId,
 } from "../game/tiles";
 import { User, Gift, Info, X, Copy, RefreshCw, Play } from "lucide-react";
+import { WalletHeader } from "../components";
 import "./GamePage.css";
 
 const TILE_SIZE = 32;
@@ -1098,20 +1098,7 @@ export default function GamePage() {
               Marketplace
             </Link>
           </nav>
-          <div className="game-header-right">
-            {account && (
-              <div className="game-balance">
-                <img
-                  alt="CHUNK"
-                  className="game-balance__icon"
-                  src="https://ik.imagekit.io/huubao/chunk_coin.png?updatedAt=1768641987539"
-                />
-                <span className="game-balance__value">{rewardBalance}</span>
-                <span className="game-balance__label">CHUNK</span>
-              </div>
-            )}
-            <ConnectButton />
-          </div>
+          <WalletHeader />
         </header>
 
         <div className="game-stage">

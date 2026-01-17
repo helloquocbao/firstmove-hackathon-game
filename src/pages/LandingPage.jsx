@@ -1,8 +1,6 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ConnectButton, useCurrentAccount } from "@mysten/dapp-kit";
-import { REWARD_COIN_TYPE } from "../chain/config";
-import { suiClient } from "../chain/suiClient";
+import { WalletHeader } from "../components";
 import "./LandingPage.css";
 
 const features = [
@@ -51,34 +49,6 @@ const gameFeatures = [
 ];
 
 export default function LandingPage() {
-  const account = useCurrentAccount();
-  const [rewardBalance, setRewardBalance] = useState(0);
-
-  useEffect(() => {
-    async function fetchBalance() {
-      if (!account?.address || !REWARD_COIN_TYPE) {
-        setRewardBalance(0);
-        return;
-      }
-      try {
-        const coins = await suiClient.getCoins({
-          owner: account.address,
-          coinType: REWARD_COIN_TYPE,
-        });
-        const total = coins.data.reduce(
-          (sum, coin) => sum + BigInt(coin.balance),
-          BigInt(0),
-        );
-        // DECIMALS = 0 in reward_coin.move, so no division needed
-        setRewardBalance(Number(total));
-      } catch (err) {
-        console.error("Failed to fetch reward balance:", err);
-        setRewardBalance(0);
-      }
-    }
-    fetchBalance();
-  }, [account?.address]);
-
   return (
     <div className="landing">
       <div className="landing__bg">
@@ -110,26 +80,7 @@ export default function LandingPage() {
             <Link to="/marketplace">Marketplace</Link>
           </nav>
 
-          <div className="header-right">
-            {account && (
-              <div className="reward-balance">
-                <span className="reward-balance__icon">
-                  <img
-                    alt="icon"
-                    className="w-4 h-4"
-                    src="https://ik.imagekit.io/huubao/chunk_coin.png?updatedAt=1768641987539"
-                  />
-                </span>
-                <span className="reward-balance__value">
-                  {rewardBalance.toLocaleString()}
-                </span>
-                <span className="reward-balance__label">CHUNK</span>
-              </div>
-            )}
-            <div className="wallet-connect-btn">
-              <ConnectButton />
-            </div>
-          </div>
+          <WalletHeader />
         </header>
 
         {/* Hero Section */}

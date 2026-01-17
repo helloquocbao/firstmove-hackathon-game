@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Transaction } from "@mysten/sui/transactions";
 import {
-  ConnectButton,
   useCurrentAccount,
   useSignAndExecuteTransaction,
 } from "@mysten/dapp-kit";
@@ -23,6 +22,7 @@ import {
   Link2,
   Loader
 } from "lucide-react";
+import { WalletHeader } from "../components";
 import "./Marketplace.css";
 
 type ListingEventFields = {
@@ -67,34 +67,8 @@ export default function Marketplace() {
   const [status, setStatus] = useState("");
   const [listingStatus, setListingStatus] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [rewardBalance, setRewardBalance] = useState(0);
 
   const chunkType = PACKAGE_ID ? `${PACKAGE_ID}::world::ChunkNFT` : "";
-
-  useEffect(() => {
-    async function fetchBalance() {
-      if (!account?.address || !REWARD_COIN_TYPE) {
-        setRewardBalance(0);
-        return;
-      }
-      try {
-        const coins = await suiClient.getCoins({
-          owner: account.address,
-          coinType: REWARD_COIN_TYPE,
-        });
-        const total = coins.data.reduce(
-          (sum, coin) => sum + BigInt(coin.balance),
-          BigInt(0),
-        );
-        // DECIMALS = 0 in reward_coin.move, so no division needed
-        setRewardBalance(Number(total));
-      } catch (err) {
-        console.error("Failed to fetch reward balance:", err);
-        setRewardBalance(0);
-      }
-    }
-    fetchBalance();
-  }, [account?.address]);
 
   useEffect(() => {
     void refreshListings();
@@ -393,24 +367,7 @@ export default function Marketplace() {
             <Link to="/game">Play</Link>
           </nav>
 
-          <div className="header-right">
-            {account && (
-              <div className="reward-balance">
-                <span className="reward-balance__icon">
-                  <img
-                    alt="icon"
-                    className="w-4 h-4"
-                    src="https://ik.imagekit.io/huubao/chunk_coin.png?updatedAt=1768641987539"
-                  />
-                </span>
-                <span className="reward-balance__value">
-                  {rewardBalance.toLocaleString()}
-                </span>
-                <span className="reward-balance__label">CHUNK</span>
-              </div>
-            )}
-            <ConnectButton />
-          </div>
+          <WalletHeader />
         </header>
 
         {/* Hero Section */}

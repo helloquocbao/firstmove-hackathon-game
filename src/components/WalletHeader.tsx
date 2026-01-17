@@ -6,11 +6,11 @@ const CHUNK_COIN_ICON = "https://ik.imagekit.io/huubao/chunk_coin.png?updatedAt=
 
 /**
  * Shared component for displaying reward balance and connect wallet button
- * Used in header sections across all pages
+ * Uses Zustand store to cache balance and avoid repeated fetches
  */
 export function WalletHeader() {
   const account = useCurrentAccount();
-  const { balance } = useRewardBalance();
+  const { balance, isLoading } = useRewardBalance();
 
   return (
     <div className="wallet-header">
@@ -21,7 +21,11 @@ export function WalletHeader() {
             className="wallet-header__icon"
             src={CHUNK_COIN_ICON}
           />
-          <span className="wallet-header__value">{balance.toLocaleString()}</span>
+          {isLoading ? (
+            <span className="wallet-header__skeleton" />
+          ) : (
+            <span className="wallet-header__value">{balance.toLocaleString()}</span>
+          )}
           <span className="wallet-header__label">CHUNK</span>
         </div>
       )}

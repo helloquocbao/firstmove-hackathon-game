@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import {
-  ConnectButton,
   useCurrentAccount,
   useSignAndExecuteTransaction,
 } from "@mysten/dapp-kit";
@@ -27,6 +26,7 @@ import {
   PaintLayer,
 } from "../game/tiles";
 import { useWalrusImageUpload } from "../hooks";
+import { WalletHeader } from "../components";
 import "./EditorGame.css";
 
 /**
@@ -81,33 +81,6 @@ export default function EditorGame() {
   const [hoveredChunkId, setHoveredChunkId] = useState("");
   const [isHoverIdLoading, setIsHoverIdLoading] = useState(false);
   const [isClaimHelpOpen, setIsClaimHelpOpen] = useState(false);
-  const [rewardBalance, setRewardBalance] = useState(0);
-
-  // Fetch reward balance
-  useEffect(() => {
-    async function fetchBalance() {
-      if (!account?.address || !REWARD_COIN_TYPE) {
-        setRewardBalance(0);
-        return;
-      }
-      try {
-        const coins = await suiClient.getCoins({
-          owner: account.address,
-          coinType: REWARD_COIN_TYPE,
-        });
-        const total = coins.data.reduce(
-          (sum, coin) => sum + BigInt(coin.balance),
-          BigInt(0),
-        );
-        // DECIMALS = 0 in reward_coin.move, so no division needed
-        setRewardBalance(Number(total));
-      } catch (err) {
-        console.error("Failed to fetch reward balance:", err);
-        setRewardBalance(0);
-      }
-    }
-    fetchBalance();
-  }, [account?.address]);
 
   // Compute current chunk price for UI display
   const claimChunkPrice =
@@ -1255,24 +1228,7 @@ export default function EditorGame() {
             <Link to="/marketplace">Marketplace</Link>
           </nav>
 
-          <div className="header-right">
-            {account && (
-              <div className="reward-balance">
-                <span className="reward-balance__icon">
-                  <img
-                    alt="icon"
-                    className="w-4 h-4"
-                    src="https://ik.imagekit.io/huubao/chunk_coin.png?updatedAt=1768641987539"
-                  />
-                </span>
-                <span className="reward-balance__value">
-                  {rewardBalance.toLocaleString()}
-                </span>
-                <span className="reward-balance__label">CHUNK</span>
-              </div>
-            )}
-            <ConnectButton />
-          </div>
+          <WalletHeader />
         </header>
 
         <div className="editor-layout">
@@ -1390,7 +1346,7 @@ export default function EditorGame() {
               <div className="flex justify-between items-center">
                 <div>
                   <div className="panel__eyebrow">Stone canvas</div>
-                  <div className="panel__title">Chunk grid</div>
+                  <div className="panel__title">Select your chunk to edit</div>
                 </div>
                 <button
                   className="btn btn--dark"

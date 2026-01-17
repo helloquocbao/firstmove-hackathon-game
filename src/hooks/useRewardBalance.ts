@@ -1,44 +1,23 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useCurrentAccount } from "@mysten/dapp-kit";
-import { REWARD_COIN_TYPE } from "../chain/config";
-import { suiClient } from "../chain/suiClient";
+import { useBalanceStore } from "../stores";
 
 /**
  * Hook to fetch and track the user's CHUNK reward token balance
+ * Uses Zustand store to cache balance and avoid repeated fetches
  */
 export function useRewardBalance() {
   const account = useCurrentAccount();
-  const [balance, setBalance] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
+  const { balance, isLoading, fetchBalance, reset } = useBalanceStore();
 
   useEffect(() => {
-    async function fetchBalance() {
-      if (!account?.address || !REWARD_COIN_TYPE) {
-        setBalance(0);
-        return;
-      }
-      
-      setIsLoading(true);
-      try {
-        const coins = await suiClient.getCoins({
-          owner: account.address,
-          coinType: REWARD_COIN_TYPE,
-        });
-        const total = coins.data.reduce(
-          (sum, coin) => sum + BigInt(coin.balance),
-          BigInt(0),
-        );
-        // DECIMALS = 0 in reward_coin.move, so no division needed
-        setBalance(Number(total));
-      } catch (err) {
-        console.error("Failed to fetch reward balance:", err);
-        setBalance(0);
-      } finally {
-        setIsLoading(false);
-      }
+    if (account?.address) {
+      fetchBalance(account.address);
+    } else {
+      reset();
     }
-    fetchBalance();
-  }, [account?.address]);
+  }, [account?.address, fetchBalance, reset]);
 
   return { balance, isLoading, account };
 }
+

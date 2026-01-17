@@ -16,6 +16,7 @@ import {
   EnemyConfig,
   DifficultyInfo,
 } from "./enemyMaintainer";
+import { soundManager } from "./soundManager";
 
 let started = false;
 const TILE = 32;
@@ -659,8 +660,17 @@ export function startGame(mapData?: GameMapData) {
                 {
                   damage: goblin.damage ?? GOBLIN_CONFIG.damage,
                   source: "goblin",
+                  hitSomething: false,
                 },
               ]);
+              
+              // Check if attack hit after a short delay
+              wait(0.06, () => {
+                if (!hitbox.exists()) return;
+                if (!hitbox.hitSomething) {
+                  soundManager.play('hit-air');
+                }
+              });
             });
           }
 
@@ -800,7 +810,7 @@ export function startGame(mapData?: GameMapData) {
 
             wait(0.2, () => {
               if (!yod.exists()) return;
-              add([
+              const hitbox = add([
                 pos(yod.pos.x + yod.facing * 12, yod.pos.y),
                 area({ shape: new Rect(vec2(0), 30, 24) }),
                 anchor("center"),
@@ -809,8 +819,17 @@ export function startGame(mapData?: GameMapData) {
                 {
                   damage: yod.damage ?? YOD_CONFIG.damage,
                   source: "yod",
+                  hitSomething: false,
                 },
               ]);
+              
+              // Check if attack hit after a short delay
+              wait(0.06, () => {
+                if (!hitbox.exists()) return;
+                if (!hitbox.hitSomething) {
+                  soundManager.play('hit-air');
+                }
+              });
             });
           }
 
@@ -990,6 +1009,8 @@ export function startGame(mapData?: GameMapData) {
 
     // Handle player attack hitting goblins
     onCollide("attack", "goblin", (attack, goblin) => {
+      attack.hitSomething = true;
+      soundManager.play('hit-enemy');
       goblin.health -= 1;
       if (goblin.health <= 0) {
         goblin.destroy();
@@ -1000,6 +1021,8 @@ export function startGame(mapData?: GameMapData) {
       }
     });
     onCollide("attack", "yod", (attack, yod) => {
+      attack.hitSomething = true;
+      soundManager.play('hit-enemy');
       yod.health -= 1;
       if (yod.health <= 0) {
         yod.destroy();
@@ -1113,6 +1136,9 @@ export function startGame(mapData?: GameMapData) {
       if (isGameOver) return;
       if (playerInvincible) return;
 
+      attack.hitSomething = true;
+      soundManager.play('hit-me');
+
       // Get damage from the attack hitbox (set when goblin attacks)
       const goblinDamage = attack.damage ?? GOBLIN_CONFIG.damage;
 
@@ -1186,6 +1212,8 @@ export function startGame(mapData?: GameMapData) {
       
       // Chest collision logic
       onCollide("attack", "chest", (attack, chest) => {
+        attack.hitSomething = true;
+        soundManager.play('hit-chest');
         chest.health -= 1;
         // Hit effect
         const textPos = chest.pos.sub(0, 20);
@@ -1353,13 +1381,25 @@ export function startGame(mapData?: GameMapData) {
 
     function spawnAttackHitbox() {
       const attackFacing = player.attackFacing ?? player.facing;
-      add([
+      const hitbox = add([
         pos(player.pos.x + attackFacing * 12, player.pos.y),
         area({ shape: new Rect(vec2(1), 28, 26) }),
         anchor("center"),
         lifespan(0.1),
         "attack",
+        {
+          hitSomething: false,
+        },
       ]);
+      
+      // Check if attack will hit anything after a short delay
+      wait(0.05, () => {
+        if (!hitbox.exists()) return;
+        if (!hitbox.hitSomething) {
+          // Attack missed - play air sound
+          soundManager.play('hit-air');
+        }
+      });
     }
 
     function attack() {

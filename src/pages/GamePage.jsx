@@ -146,6 +146,17 @@ export default function GamePage() {
   }, []);
 
   useEffect(() => {
+    const handler = () => {
+      setStartModalError("");
+      setShowStartModal(true);
+      setIsGameStarted(false);
+      setStartMode(playId ? "resume" : "player");
+    };
+    window.addEventListener("game:player-dead", handler);
+    return () => window.removeEventListener("game:player-dead", handler);
+  }, [playId]);
+
+  useEffect(() => {
     if (!playId || !PACKAGE_ID) {
       setClaimCheckMessage("");
       setIsClaimCheckBusy(false);

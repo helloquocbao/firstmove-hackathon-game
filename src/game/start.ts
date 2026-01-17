@@ -206,6 +206,7 @@ export function startGame(mapData?: GameMapData) {
       return;
     }
 
+    let isGameOver = false;
     const tileSize = resolvedMap.tileSize || TILE;
     const spawnPos = findSpawn(resolvedMap.grid, tileSize);
     drawTiles(resolvedMap.grid, resolvedMap.decoGrid, tileSize);
@@ -609,6 +610,7 @@ export function startGame(mapData?: GameMapData) {
 
     // Update all goblins
     onUpdate(() => {
+      if (isGameOver) return;
       // Đếm số quái còn sống và cập nhật maintainer
       const aliveGoblins = goblins.filter((g) => g.exists());
       maintainer.updateEnemyCount(aliveGoblins.length);
@@ -743,6 +745,7 @@ export function startGame(mapData?: GameMapData) {
     // Handle goblin attack hitting player
     // Damage is now dynamic based on difficulty (from attack hitbox)
     onCollide("goblin-attack", "player", (attack, _player) => {
+      if (isGameOver) return;
       if (playerInvincible) return;
 
       // Get damage from the attack hitbox (set when goblin attacks)
@@ -753,7 +756,7 @@ export function startGame(mapData?: GameMapData) {
 
       if (playerHP <= 0) {
         // Player dies
-        go("game", { mapData: resolvedMap });
+        triggerGameOver();
         return;
       }
 
@@ -809,6 +812,7 @@ export function startGame(mapData?: GameMapData) {
     }
 
     onUpdate(() => {
+      if (isGameOver) return;
       camPos(player.pos);
       camScale(2); // Zoom camera 2x để nhìn rõ hơn
     });
@@ -818,26 +822,41 @@ export function startGame(mapData?: GameMapData) {
     let moveDir = vec2(0, 0);
     let isFalling = false;
 
+    function triggerGameOver() {
+      if (isGameOver) return;
+      isGameOver = true;
+      stopEnemyMaintainer();
+      window.dispatchEvent(new CustomEvent("game:player-dead"));
+    }
+
     function handleFallDeath() {
       if (isFalling) return;
       isFalling = true;
-      go("game", { mapData: resolvedMap });
+      triggerGameOver();
     }
 
     onKeyDown("a", () => {
+      if (isGameOver) return;
       if (player.attacking) return;
       moveDir.x = -1;
       player.facing = -1;
     });
 
     onKeyDown("d", () => {
+      if (isGameOver) return;
       if (player.attacking) return;
       moveDir.x = 1;
       player.facing = 1;
     });
 
-    onKeyDown("w", () => (moveDir.y = -1));
-    onKeyDown("s", () => (moveDir.y = 1));
+    onKeyDown("w", () => {
+      if (isGameOver) return;
+      moveDir.y = -1;
+    });
+    onKeyDown("s", () => {
+      if (isGameOver) return;
+      moveDir.y = 1;
+    });
 
     /* ================= MOVE ================= */
 
@@ -895,6 +914,7 @@ export function startGame(mapData?: GameMapData) {
     }
 
     function attack() {
+      if (isGameOver) return;
       if (player.attacking) return;
 
       player.attacking = true;
@@ -915,6 +935,7 @@ export function startGame(mapData?: GameMapData) {
     /* ================= UPDATE LOOP ================= */
 
     player.onUpdate(() => {
+      if (isGameOver) return;
       /* ---- CHECK DEATH ON ABYSS/VOID ---- */
       // If player is standing on dangerous tile (abyss, void, out of bounds) -> die
       if (isPositionDangerous(player.pos)) {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ConnectButton,
@@ -35,10 +35,7 @@ export default function GamePage() {
   const { mutateAsync: signAndExecute, isPending } =
     useSignAndExecuteTransaction();
   const [worldId, setWorldId] = useState("");
-  const [worldList, setWorldList] = useState([]);
   const [worldListError, setWorldListError] = useState("");
-  const [isWorldListLoading, setIsWorldListLoading] = useState(false);
-  const [selectedWorldId, setSelectedWorldId] = useState("");
   const [mapLoadError, setMapLoadError] = useState("");
   const [isMapLoading, setIsMapLoading] = useState(false);
   const [loadedChunks, setLoadedChunks] = useState(null);
@@ -184,16 +181,10 @@ export default function GamePage() {
 
   useEffect(() => {
     void (async () => {
-      const id = await loadWorldId();
-      await loadWorldList(id);
+      // Load world list and auto-load first world
+      await loadWorldListAndMap();
     })();
   }, [WORLD_REGISTRY_ID]);
-
-  useEffect(() => {
-    if (!selectedWorldId && worldId) {
-      setSelectedWorldId(worldId);
-    }
-  }, [worldId, selectedWorldId]);
 
   useEffect(() => {
     void loadRewardBalance();
@@ -238,12 +229,6 @@ export default function GamePage() {
     }
   }
 
-  const worldListOptions = useMemo(() => {
-    const ids = new Set();
-    if (worldId) ids.add(worldId);
-    worldList.forEach((id) => ids.add(id));
-    return Array.from(ids);
-  }, [worldId, worldList]);
   const isWalletBusy = isPending || isPlayBusy || isClaimBusy;
 
   async function loadWorldId() {
@@ -285,14 +270,19 @@ export default function GamePage() {
     }
   }
 
-  async function loadWorldList(registryId) {
+  async function loadWorldListAndMap() {
+    setMapLoadError("");
     setWorldListError("");
-    setIsWorldListLoading(true);
+    setIsMapLoading(true);
 
     try {
-      const ids = new Set();
-      if (registryId) ids.add(registryId);
+      const ids = [];
 
+      // First try to get from registry
+      const registryId = await loadWorldId();
+      if (registryId) ids.push(registryId);
+
+      // Then query WorldCreatedEvent for more worlds
       if (PACKAGE_ID) {
         const eventType = `${PACKAGE_ID}::world::WorldCreatedEvent`;
         let cursor = null;
@@ -317,7 +307,7 @@ export default function GamePage() {
                 : typeof record.worldId === "string"
                 ? record.worldId
                 : "";
-            if (id) ids.add(id);
+            if (id && !ids.includes(id)) ids.push(id);
           }
 
           cursor = page.nextCursor ?? null;
@@ -326,11 +316,19 @@ export default function GamePage() {
         }
       }
 
-      setWorldList(Array.from(ids));
+      // Auto-load the first world in the list
+      if (ids.length > 0) {
+        const firstWorldId = ids[0];
+        setWorldId(firstWorldId);
+        setIsMapLoading(false);
+        await loadWorldMap(firstWorldId);
+      } else {
+        setMapLoadError("No worlds found.");
+        setIsMapLoading(false);
+      }
     } catch (error) {
       setWorldListError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsWorldListLoading(false);
+      setIsMapLoading(false);
     }
   }
 
@@ -695,9 +693,8 @@ export default function GamePage() {
       setPlayError("Missing package or reward vault id.");
       return;
     }
-    const activeWorldId = selectedWorldId || worldId;
-    if (!activeWorldId) {
-      setPlayError("Select a world first.");
+    if (!worldId) {
+      setPlayError("World not loaded.");
       return;
     }
 
@@ -744,7 +741,7 @@ export default function GamePage() {
         tx.moveCall({
           target: `${PACKAGE_ID}::world::play_v1`,
           arguments: [
-            tx.object(activeWorldId),
+            tx.object(worldId),
             tx.object(REWARD_VAULT_ID),
             tx.object(characterId),
             tx.pure.vector("u8", sealVector),
@@ -755,7 +752,7 @@ export default function GamePage() {
         tx.moveCall({
           target: `${PACKAGE_ID}::world::play_v2`,
           arguments: [
-            tx.object(activeWorldId),
+            tx.object(worldId),
             tx.object(REWARD_VAULT_ID),
             tx.object(characterId),
             tx.object(playableCoin.coinObjectId),
@@ -797,7 +794,7 @@ export default function GamePage() {
         storePlayState({
           playId: "pending",
           keyHex,
-          worldId: activeWorldId,
+          worldId: worldId,
           found: false,
           digest: result.digest,
         });
@@ -829,13 +826,13 @@ export default function GamePage() {
 
       const target = pickKeyTarget();
       if (target) {
-        storePlayTarget({ ...target, worldId: activeWorldId, found: false });
+        storePlayTarget({ ...target, worldId: worldId, found: false });
       }
 
       storePlayState({
         playId: nextPlayId,
         keyHex,
-        worldId: activeWorldId,
+        worldId: worldId,
         found: false,
       });
       setPlayId(nextPlayId);
@@ -876,9 +873,8 @@ export default function GamePage() {
       return;
     }
 
-    const activeWorldId = selectedWorldId || worldId;
-    if (!activeWorldId) {
-      setClaimError("Select a world first.");
+    if (!worldId) {
+      setClaimError("World not loaded.");
       return;
     }
 
@@ -889,7 +885,7 @@ export default function GamePage() {
       tx.moveCall({
         target: `${PACKAGE_ID}::world::claim_reward`,
         arguments: [
-          tx.object(activeWorldId),
+          tx.object(worldId),
           tx.object(REWARD_VAULT_ID),
           tx.object(characterId),
           tx.object(RANDOM_OBJECT_ID),
@@ -956,14 +952,6 @@ export default function GamePage() {
     } finally {
       setIsClaimCheckBusy(false);
     }
-  }
-
-  function handleLoadWorld() {
-    if (!selectedWorldId) {
-      setMapLoadError("Select a world to load.");
-      return;
-    }
-    void loadWorldMap(selectedWorldId);
   }
 
   async function handleCreateCharacter() {
@@ -1061,6 +1049,12 @@ export default function GamePage() {
         <div className="game-stage">
           <div className="game-frame">
             <canvas id="game" />
+            {isMapLoading && (
+              <div className="game-loading-overlay">
+                <div className="game-loading-spinner" />
+                <div className="game-loading-text">Loading world...</div>
+              </div>
+            )}
           </div>
 
           <aside
@@ -1069,32 +1063,9 @@ export default function GamePage() {
             <div className="game-info__title flex justify-between items-center">
               <span className="font-bold">MISSION</span>
             </div>
-            <div className="game-field">
-              <label>World id</label>
-              <select
-                value={selectedWorldId}
-                onChange={(event) => setSelectedWorldId(event.target.value)}
-                disabled={isWorldListLoading}
-              >
-                <option value="">
-                  {worldListOptions.length > 0
-                    ? "Select world"
-                    : "No worlds found"}
-                </option>
-                {worldListOptions.map((id) => (
-                  <option key={id} value={id}>
-                    {id}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <button
-              className="game-btn game-btn--primary"
-              onClick={handleLoadWorld}
-              disabled={isMapLoading || !selectedWorldId}
-            >
-              {isMapLoading ? "Loading..." : "Load world"}
-            </button>
+            {isMapLoading && (
+              <div className="game-info__note">Loading world...</div>
+            )}
             {loadedChunks !== null && (
               <div className="game-info__note">
                 Loaded {loadedChunks} chunks.
@@ -1481,7 +1452,7 @@ export default function GamePage() {
                   storePlayState({
                     playId: restorePlayId,
                     keyHex: restoreKeyHex,
-                    worldId: restoreWorldId || selectedWorldId || worldId,
+                    worldId: restoreWorldId || worldId,
                     found: false,
                   });
                   setPlayId(restorePlayId);

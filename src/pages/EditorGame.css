@@ -126,6 +126,7 @@
 
 .panel--main {
   gap: 18px;
+  position: relative;
 }
 
 .panel__header {
@@ -537,6 +538,47 @@
 @media (max-width: 1100px) {
   .editor-layout {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Loading overlay */
+.editor-loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(4px);
+  z-index: 100;
+  border-radius: 12px;
+}
+
+.editor-loading-spinner {
+  width: 48px;
+  height: 48px;
+  border: 4px solid rgba(34, 50, 71, 0.1);
+  border-top-color: var(--accent, #f6a44b);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.editor-loading-text {
+  margin-top: 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink, #1c2633);
+}
+
+.editor-grid-wrap.is-loading {
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 

@@ -1094,6 +1094,9 @@ export default function GamePage() {
             <Link className="game-link" to="/editor">
               Editor
             </Link>
+            <Link className="game-link" to="/marketplace">
+              Marketplace
+            </Link>
           </nav>
           <div className="game-header-right">
             {account && (

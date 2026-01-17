@@ -8,6 +8,21 @@ import {
 } from "@mysten/dapp-kit";
 import { PACKAGE_ID, REWARD_COIN_TYPE } from "../chain/config";
 import { suiClient } from "../chain/suiClient";
+import { 
+  Upload, 
+  RefreshCw, 
+  X, 
+  Wallet, 
+  Mountain, 
+  MapPin, 
+  Check, 
+  ShoppingCart, 
+  RotateCcw, 
+  Coins, 
+  Package, 
+  Link2,
+  Loader
+} from "lucide-react";
 import "./Marketplace.css";
 
 type ListingEventFields = {
@@ -425,14 +440,14 @@ export default function Marketplace() {
                   void loadOwnedChunks();
                 }}
               >
-                📤 List Your Chunk
+                <Upload size={14} /> List Your Chunk
               </button>
               <button
                 className="btn btn--ghost"
                 onClick={refreshListings}
                 disabled={isLoading}
               >
-                {isLoading ? "⏳ Loading..." : "🔄 Refresh"}
+                {isLoading ? <><Loader size={14} /> Loading...</> : <><RefreshCw size={14} /> Refresh</>}
               </button>
             </div>
           </div>
@@ -460,7 +475,7 @@ export default function Marketplace() {
               </div>
 
               <div className="marketplace-wallet-info">
-                <div className="marketplace-wallet-info__icon">👛</div>
+                <div className="marketplace-wallet-info__icon"><Wallet size={18} /></div>
                 <div className="marketplace-wallet-info__details">
                   <div className="marketplace-wallet-info__label">
                     Connected Wallet
@@ -488,14 +503,14 @@ export default function Marketplace() {
             >
               <div className="marketplace-modal__header">
                 <h2 className="marketplace-modal__title">
-                  <span className="marketplace-section__title-icon">🏔️</span>
+                  <span className="marketplace-section__title-icon"><Mountain size={18} /></span>
                   Your Chunks
                 </h2>
                 <button
                   className="marketplace-modal__close"
                   onClick={() => setIsModalOpen(false)}
                 >
-                  ✕
+                  <X size={16} />
                 </button>
               </div>
 
@@ -520,11 +535,11 @@ export default function Marketplace() {
                               />
                             ) : (
                               <div className="marketplace-owned-card__preview-placeholder">
-                                🏔️
+                                <Mountain size={32} />
                               </div>
                             )}
                             <div className="marketplace-owned-card__coords">
-                              📍 ({chunk.cx ?? "?"}, {chunk.cy ?? "?"})
+                              <MapPin size={12} /> ({chunk.cx ?? "?"}, {chunk.cy ?? "?"})
                             </div>
                           </div>
                           <div className="marketplace-owned-card__body">
@@ -578,8 +593,8 @@ export default function Marketplace() {
                                 }
                               >
                                 {listedChunkIds.has(chunk.chunkId)
-                                  ? "✓ Listed"
-                                  : "📤 List for Sale"}
+                                  ? <><Check size={12} /> Listed</>
+                                  : <><Upload size={12} /> List for Sale</>}
                               </button>
                             </div>
                           </div>
@@ -588,7 +603,7 @@ export default function Marketplace() {
                     </div>
                   ) : (
                     <div className="marketplace-empty">
-                      <div className="marketplace-empty__icon">📦</div>
+                      <div className="marketplace-empty__icon"><Package size={32} /></div>
                       <p className="marketplace-empty__text">
                         You don't have any chunks yet. Explore the game to mint
                         your first chunk!
@@ -597,7 +612,7 @@ export default function Marketplace() {
                   )
                 ) : (
                   <div className="marketplace-empty">
-                    <div className="marketplace-empty__icon">🔗</div>
+                    <div className="marketplace-empty__icon"><Link2 size={32} /></div>
                     <p className="marketplace-empty__text">
                       Connect your wallet to view your chunks
                     </p>
@@ -607,7 +622,7 @@ export default function Marketplace() {
 
               <div className="marketplace-modal__footer">
                 <button className="btn--ghost" onClick={loadOwnedChunks}>
-                  🔄 Reload Chunks
+                  <RefreshCw size={12} /> Reload Chunks
                 </button>
               </div>
             </div>
@@ -618,7 +633,7 @@ export default function Marketplace() {
         <section className="marketplace-section">
           <div className="marketplace-section__header">
             <h2 className="marketplace-section__title">
-              <span className="marketplace-section__title-icon">🛒</span>
+              <span className="marketplace-section__title-icon"><ShoppingCart size={18} /></span>
               Available Listings
             </h2>
             <div className="marketplace-section__actions">
@@ -627,7 +642,7 @@ export default function Marketplace() {
                 onClick={refreshListings}
                 disabled={isLoading}
               >
-                {isLoading ? "⏳ Loading..." : "🔄 Refresh"}
+                {isLoading ? <><Loader size={12} /> Loading...</> : <><RefreshCw size={12} /> Refresh</>}
               </button>
             </div>
           </div>
@@ -695,7 +710,7 @@ export default function Marketplace() {
                         onClick={() => handleDelist(listing)}
                         disabled={isPending}
                       >
-                        {isPending ? "⏳ Processing..." : "🔙 Delist"}
+                        {isPending ? <><Loader size={12} /> Processing...</> : <><RotateCcw size={12} /> Delist</>}
                       </button>
                     ) : (
                       <button
@@ -703,7 +718,7 @@ export default function Marketplace() {
                         onClick={() => handleBuy(listing)}
                         disabled={isPending}
                       >
-                        {isPending ? "⏳ Processing..." : "💰 Buy Now"}
+                        {isPending ? <><Loader size={12} /> Processing...</> : <><Coins size={12} /> Buy Now</>}
                       </button>
                     )}
                   </div>
@@ -712,7 +727,7 @@ export default function Marketplace() {
             </div>
           ) : (
             <div className="marketplace-empty">
-              <div className="marketplace-empty__icon">🏜️</div>
+              <div className="marketplace-empty__icon"><Mountain size={32} /></div>
               <p className="marketplace-empty__text">
                 No chunks currently listed for sale. Be the first to list!
               </p>

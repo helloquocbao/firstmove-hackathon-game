@@ -3,19 +3,19 @@ export const SUI_RPC_URL =
 
 export const PACKAGE_ID =
   import.meta.env.VITE_PACKAGE_ID ??
-  "0xff4034175032249ebfd1f68e0a0c31ef850912257141627aff155eadd1df6bc3";
+  "0x1db384099fc63a48cd0e35aeda0832ef958defcb3c6d1822ae8a6bd51a9bdc34";
 export const ADMIN_CAP_ID =
   import.meta.env.VITE_ADMIN_CAP ??
-  "0xfaf04dd038956e6d3297aa450ac0cae48d5ae0c7fbf1a68ab2f292fa6cfe92ca";
+  "0x102c0f57de9f6ec1107af60eabce8a444270344b4cd9c85c3106a523fd5a35b2";
 export const WORLD_REGISTRY_ID =
   import.meta.env.VITE_WORLD_REGISTRY ??
-  "0x226aba78c6f0acf9655b3343befc59011084eab87f7853b64d481276648b7e0e";
+  "0x43244a99411c2c3ddd6aba56a5bcd0592e7f816d66718673d7d80dd62bafe87b";
 export const REWARD_VAULT_ID =
   import.meta.env.VITE_REWARD_VAULT ??
-  "0x6138fb1e267342df8e5ac102413ba637aac29dcba41807d9c93778ef2c7d9e16";
+  "0xc7fe09791cc0b45605bbe16afb8291e33d6790e95d63b0695c4c179fc53438eb";
 export const TREASURY_CAP_ID =
   import.meta.env.VITE_TREASURY_CAP ??
-  "0x226aba78c6f0acf9655b3343befc59011084eab87f7853b64d481276648b7e0e";
+  "0x2c5dffa25f5af4f0ae543b06cf9046361c2db4d34c14ca4f331e3cbf4ffc883c";
 export const REWARD_COIN_TYPE = PACKAGE_ID
   ? `${PACKAGE_ID}::reward_coin::REWARD_COIN`
   : "";

@@ -175,6 +175,12 @@ export default function EditorGame() {
       owner && (owner === userId || (walletAddress && owner === walletAddress)),
     );
 
+  const myChunkCount = useMemo(() => {
+    return Object.values(chunkOwners).filter((owner) =>
+      owner && (owner === userId || (walletAddress && owner === walletAddress))
+    ).length;
+  }, [chunkOwners, userId, walletAddress]);
+
   useEffect(() => {
     chunkIdCacheRef.current = {};
     hoverRequestRef.current = 0;
@@ -1243,6 +1249,10 @@ export default function EditorGame() {
               </div>
 
               <div className="panel__rows text-nowrap overflow-hidden">
+                <div>
+                  <span>My chunks</span>
+                  <span className="panel__value text-white">{myChunkCount}</span>
+                </div>
                 <div>
                   <span>Hover chunk</span>
                   <span>{hoveredChunkLabel}</span>

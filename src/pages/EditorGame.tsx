@@ -76,7 +76,8 @@ export default function EditorGame() {
   const [mapLoadError, setMapLoadError] = useState("");
   const [loadedChunks, setLoadedChunks] = useState<number | null>(null);
 
-  const [claimImageUrl, setClaimImageUrl] = useState("");
+  // Default image URL for claimed chunks
+  const DEFAULT_CHUNK_IMAGE_URL = "https://ik.imagekit.io/huubao/image_chunk.png";
   const [isChunkModalOpen, setIsChunkModalOpen] = useState(false);
   const [hoveredChunkKey, setHoveredChunkKey] = useState("");
   const [hoveredChunkId, setHoveredChunkId] = useState("");
@@ -685,20 +686,36 @@ export default function EditorGame() {
     const tiles = Array(CHUNK_SIZE * CHUNK_SIZE).fill(DEFAULT_FLOOR);
     // Default decorations: no decorations
     const decorations = Array(CHUNK_SIZE * CHUNK_SIZE).fill(0);
-    const imageUrl = claimImageUrl.trim();
+    const imageUrl = DEFAULT_CHUNK_IMAGE_URL;
+
+    // Calculate chunk price: chunk 0 = free, chunk N costs N * 5 coins
+    const CHUNK_PRICE_INCREMENT = 5;
+    const currentChunkCount = loadedChunks ?? 0;
+    const chunkPrice = currentChunkCount * CHUNK_PRICE_INCREMENT;
+
+    // Check if user has enough coins before proceeding
+    const coins = await suiClient.getCoins({
+      owner: account!.address,
+      coinType: REWARD_COIN_TYPE,
+    });
+    
+    const totalBalance = coins.data.reduce(
+      (sum, c) => sum + BigInt(c.balance),
+      BigInt(0)
+    );
+
+    if (chunkPrice > 0 && totalBalance < BigInt(chunkPrice)) {
+      setTxError(
+        `Insufficient REWARD_COIN. Need ${chunkPrice} coins but you have ${totalBalance}. ` +
+        `Chunk #${currentChunkCount + 1} costs ${chunkPrice} coins.`
+      );
+      return;
+    }
 
     await runTx(
       "Claim chunk",
       async (tx) => {
-        // Get or create a payment coin (first chunk is free, but we need to pass a coin anyway)
-        // The contract will handle returning excess if not needed
         let paymentCoin;
-
-        // Try to get existing reward coins
-        const coins = await suiClient.getCoins({
-          owner: account!.address,
-          coinType: REWARD_COIN_TYPE,
-        });
 
         if (coins.data.length > 0) {
           // Merge all coins into one if needed and use it
@@ -714,7 +731,7 @@ export default function EditorGame() {
             paymentCoin = tx.object(allCoinIds[0]);
           }
         } else {
-          // No coins - create a zero coin (for first chunk which is free)
+          // No coins - create a zero coin (only works for first chunk which is free)
           paymentCoin = tx.moveCall({
             target: "0x2::coin::zero",
             typeArguments: [REWARD_COIN_TYPE],
@@ -1212,6 +1229,14 @@ export default function EditorGame() {
                       const isHovered = isOwned && chunkKey === hoveredChunkKey;
                       const decoId = decoGrid[y]?.[x] ?? 0;
 
+                      // Chunk edge detection for border highlight
+                      const localX = x % CHUNK_SIZE;
+                      const localY = y % CHUNK_SIZE;
+                      const isTopEdge = localY === 0;
+                      const isBottomEdge = localY === CHUNK_SIZE - 1;
+                      const isLeftEdge = localX === 0;
+                      const isRightEdge = localX === CHUNK_SIZE - 1;
+
                       return (
                         <button
                           key={`${x}-${y}`}
@@ -1219,7 +1244,11 @@ export default function EditorGame() {
                             isOwned ? "is-owned" : ""
                           } ${isSelected ? "is-selected" : ""} ${
                             isLocked ? "is-locked" : ""
-                          } ${isHovered ? "is-hovered" : ""}`}
+                          } ${isHovered ? "is-hovered" : ""} ${
+                            isHovered && isTopEdge ? "chunk-edge-top" : ""
+                          } ${isHovered && isBottomEdge ? "chunk-edge-bottom" : ""} ${
+                            isHovered && isLeftEdge ? "chunk-edge-left" : ""
+                          } ${isHovered && isRightEdge ? "chunk-edge-right" : ""}`}
                           onPointerDown={(event) =>
                             handleTilePointerDown(event, x, y)
                           }
@@ -1331,14 +1360,6 @@ export default function EditorGame() {
                   <span>{activeChunkLabel}</span>
                 </div>
               </div>
-              <div className="panel__field">
-                <label>Image URL</label>
-                <input
-                  value={claimImageUrl}
-                  onChange={(event) => setClaimImageUrl(event.target.value)}
-                  placeholder="https://..."
-                />
-              </div>
               <button
                 className="btn btn--dark"
                 onClick={claimChunkOnChain}
@@ -1346,6 +1367,7 @@ export default function EditorGame() {
               >
                 {busyAction === "Claim chunk" ? "Claiming..." : "Claim chunk"}
               </button>
+              {txError && <div className="panel__error">{txError}</div>}
             </div>
 
             <div className="panel">
@@ -1842,9 +1864,8 @@ function TileButton({
       } ${kind === "barrier" ? "tile-button--barrier" : ""}`}
       style={{ backgroundImage: `url(${image})` }}
       title={`${label} (${kind})`}
-    >
-      {label}
-    </button>
+      aria-label={`${label} (${kind})`}
+    />
   );
 }
 
@@ -1873,8 +1894,9 @@ function DecoButton({
         image ? { backgroundImage: `url(${image})` } : { background: "#333" }
       }
       title={`${label} (${kind})`}
+      aria-label={`${label} (${kind})`}
     >
-      {kind === "none" ? "✕" : label}
+      {kind === "none" ? "✕" : null}
     </button>
   );
 }

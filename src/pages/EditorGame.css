@@ -312,20 +312,25 @@
 }
 
 .tile-button {
-  padding: 8px 12px;
+  width: 40px;
+  height: 40px;
+  padding: 0;
   border: 2px solid transparent;
-  border-radius: 10px;
-  font-family: var(--font-mono);
-  font-size: 12px;
+  border-radius: 6px;
+  font-size: 0;
   cursor: pointer;
-  color: #fff;
-  min-width: 40px;
+  color: transparent;
   background-color: #0b0b0b;
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
   image-rendering: pixelated;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.tile-button:hover {
+  transform: scale(1.08);
+  box-shadow: 0 2px 8px rgba(34, 50, 71, 0.3);
 }
 
 .tile-button--active {
@@ -394,11 +399,47 @@
 }
 
 .editor-tile.is-hovered {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 12px rgba(34, 50, 71, 0.25);
   filter: brightness(1.05) saturate(1.05);
   opacity: 1;
   z-index: 1;
+}
+
+/* Chunk border highlight on hover */
+.editor-tile.is-hovered.chunk-edge-top {
+  border-top: 2px solid rgba(89, 183, 255, 0.95);
+  box-shadow: 0 -2px 8px rgba(89, 183, 255, 0.5);
+}
+
+.editor-tile.is-hovered.chunk-edge-bottom {
+  border-bottom: 2px solid rgba(89, 183, 255, 0.95);
+  box-shadow: 0 2px 8px rgba(89, 183, 255, 0.5);
+}
+
+.editor-tile.is-hovered.chunk-edge-left {
+  border-left: 2px solid rgba(89, 183, 255, 0.95);
+  box-shadow: -2px 0 8px rgba(89, 183, 255, 0.5);
+}
+
+.editor-tile.is-hovered.chunk-edge-right {
+  border-right: 2px solid rgba(89, 183, 255, 0.95);
+  box-shadow: 2px 0 8px rgba(89, 183, 255, 0.5);
+}
+
+/* Corner tiles need combined shadows */
+.editor-tile.is-hovered.chunk-edge-top.chunk-edge-left {
+  box-shadow: -2px -2px 8px rgba(89, 183, 255, 0.5);
+}
+
+.editor-tile.is-hovered.chunk-edge-top.chunk-edge-right {
+  box-shadow: 2px -2px 8px rgba(89, 183, 255, 0.5);
+}
+
+.editor-tile.is-hovered.chunk-edge-bottom.chunk-edge-left {
+  box-shadow: -2px 2px 8px rgba(89, 183, 255, 0.5);
+}
+
+.editor-tile.is-hovered.chunk-edge-bottom.chunk-edge-right {
+  box-shadow: 2px 2px 8px rgba(89, 183, 255, 0.5);
 }
 
 .editor-tile.is-selected.is-hovered {

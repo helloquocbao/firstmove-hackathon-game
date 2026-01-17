@@ -22,6 +22,7 @@ import {
   normalizeTileId,
   normalizeDecoId,
 } from "../game/tiles";
+import { User, Gift, Info, X, Copy, RefreshCw, Play } from "lucide-react";
 import "./GamePage.css";
 
 const TILE_SIZE = 32;
@@ -1065,21 +1066,21 @@ export default function GamePage() {
           onClick={() => setActivePanel(activePanel === 'character' ? null : 'character')}
           title="Character"
         >
-          👤
+          <User size={18} />
         </button>
         <button
           className={`game-panel-btn ${activePanel === 'rewards' ? 'active' : ''}`}
           onClick={() => setActivePanel(activePanel === 'rewards' ? null : 'rewards')}
           title="Rewards"
         >
-          🎁
+          <Gift size={18} />
         </button>
         <button
           className={`game-panel-btn ${activePanel === 'info' ? 'active' : ''}`}
           onClick={() => setActivePanel(activePanel === 'info' ? null : 'info')}
           title="Info"
         >
-          ℹ️
+          <Info size={18} />
         </button>
       </div>
 
@@ -1088,10 +1089,10 @@ export default function GamePage() {
         <header className="game-header">
           <nav className="game-nav">
             <Link className="game-link" to="/">
-              🏠 Home
+              Home
             </Link>
             <Link className="game-link" to="/editor">
-              🔧 Editor
+              Editor
             </Link>
           </nav>
           <div className="game-header-right">
@@ -1125,8 +1126,8 @@ export default function GamePage() {
           {activePanel === 'character' && (
             <aside className="game-panel">
               <div className="game-panel__header">
-                <span>👤 Character</span>
-                <button onClick={() => setActivePanel(null)}>✕</button>
+                <span>Character</span>
+                <button onClick={() => setActivePanel(null)}><X size={16} /></button>
               </div>
               <div className="game-panel__body">
                 {characterId ? (
@@ -1136,23 +1137,23 @@ export default function GamePage() {
                       <span>{characterName || "-"}</span>
                     </div>
                     <div className="game-info__card">
-                      <span>❤️ Health</span>
+                      <span>Health</span>
                       <span>{characterHealth}</span>
                     </div>
                     <div className="game-info__card">
-                      <span>⚔️ Power</span>
+                      <span>Power</span>
                       <span>{characterPower}</span>
                     </div>
                     <div className="game-info__card">
-                      <span>✨ Potential</span>
+                      <span>Potential</span>
                       <span>{characterPotential}</span>
                     </div>
                     <div className="game-info__card">
-                      <span>🎮 Daily Plays</span>
+                      <span>Daily Plays</span>
                       <span>{characterDailyPlays}/3</span>
                     </div>
                     <div className="game-info__card">
-                      <span>🆓 Free Plays</span>
+                      <span>Free Plays</span>
                       <span>{characterFreePlays}/2</span>
                     </div>
                   </>
@@ -1178,8 +1179,8 @@ export default function GamePage() {
           {activePanel === 'rewards' && (
             <aside className="game-panel">
               <div className="game-panel__header">
-                <span>� Rewards</span>
-                <button onClick={() => setActivePanel(null)}>✕</button>
+                <span>Rewards</span>
+                <button onClick={() => setActivePanel(null)}><X size={16} /></button>
               </div>
               <div className="game-panel__body">
                 <div className="game-info__card">
@@ -1188,14 +1189,14 @@ export default function GamePage() {
                 </div>
                 <div className="game-info__card">
                   <span>Key Status</span>
-                  <span>{isKeyFound ? "🔑 Found" : playId ? "🔍 Hidden" : "-"}</span>
+                  <span>{isKeyFound ? "Found" : playId ? "Hidden" : "-"}</span>
                 </div>
 
                 {/* Pending Session Warning */}
                 {playId && !isKeyFound && (
                   <div className="pending-session-warning">
                     <div className="pending-session-header">
-                      ⚠️ Pending Game Session
+                      Pending Game Session
                     </div>
                     <div className="pending-session-info">
                       <span>Play ID: {playId}</span>
@@ -1205,7 +1206,7 @@ export default function GamePage() {
                     </div>
                     <div className="backup-key-section">
                       <div className="backup-key-label">
-                        🔑 Backup Key:
+                        Backup Key:
                       </div>
                       <div className="backup-key-value">
                         <code>{playKeyHex}</code>
@@ -1213,10 +1214,10 @@ export default function GamePage() {
                           className="copy-btn"
                           onClick={() => {
                             navigator.clipboard.writeText(playKeyHex);
-                            setPlayNotice("✅ Key copied!");
+                            setPlayNotice("Key copied!");
                           }}
                         >
-                          📋
+                          <Copy size={12} />
                         </button>
                       </div>
                     </div>
@@ -1232,7 +1233,7 @@ export default function GamePage() {
                           onClick={retryFetchPlayId}
                           disabled={isWalletBusy}
                         >
-                          🔄 Retry
+                          <RefreshCw size={12} /> Retry
                         </button>
                       )}
                       <button
@@ -1255,7 +1256,7 @@ export default function GamePage() {
                     className="game-btn game-btn--restore"
                     onClick={() => setShowRestoreModal(true)}
                   >
-                    🔄 Restore Session
+                    <RefreshCw size={12} /> Restore Session
                   </button>
                 )}
 
@@ -1278,7 +1279,7 @@ export default function GamePage() {
                       checked={playMode === "v2"}
                       onChange={(e) => setPlayMode(e.target.value)}
                     />
-                    V2 5💰 ({characterDailyPlays}/3)
+                    V2 Paid ({characterDailyPlays}/3)
                   </label>
                 </div>
 
@@ -1287,14 +1288,14 @@ export default function GamePage() {
                   onClick={() => handlePlayOnChain()}
                   disabled={isWalletBusy || !account?.address}
                 >
-                  {isPlayBusy ? "Starting..." : `▶ Start ${playMode.toUpperCase()}`}
+                  {isPlayBusy ? "Starting..." : <><Play size={12} /> Start {playMode.toUpperCase()}</>}
                 </button>
                 <button
                   className="game-btn"
                   onClick={handleClaimOnChain}
                   disabled={!playId || !isKeyFound || isWalletBusy}
                 >
-                  {isClaimBusy ? "Claiming..." : "🎁 Claim Reward"}
+                  {isClaimBusy ? "Claiming..." : "Claim Reward"}
                 </button>
 
                 {playNotice && <div className="game-info__note">{playNotice}</div>}
@@ -1308,8 +1309,8 @@ export default function GamePage() {
           {activePanel === 'info' && (
             <aside className="game-panel">
               <div className="game-panel__header">
-                <span>ℹ️ Info</span>
-                <button onClick={() => setActivePanel(null)}>✕</button>
+                <span>Info</span>
+                <button onClick={() => setActivePanel(null)}><X size={16} /></button>
               </div>
               <div className="game-panel__body">
                 {/* Map Status */}
@@ -1329,7 +1330,7 @@ export default function GamePage() {
                 )}
 
                 {/* Controls */}
-                <div className="game-info__title">🎮 Controls</div>
+                <div className="game-info__title">Controls</div>
                 <div className="game-info__card">
                   <span>Move</span>
                   <span>W A S D</span>
@@ -1340,7 +1341,7 @@ export default function GamePage() {
                 </div>
 
                 {/* Network Status */}
-                <div className="game-info__title">⛓️ Network</div>
+                <div className="game-info__title">Network</div>
                 <div className="game-info__card">
                   <span>Status</span>
                   <span>{difficultyInfo.networkStatus}</span>
@@ -1375,7 +1376,7 @@ export default function GamePage() {
                 className="game-modal__close"
                 onClick={() => setShowCreateCharacterModal(false)}
               >
-                ✕
+                <X size={16} />
               </button>
             </div>
             <div className="game-modal__body">
@@ -1420,8 +1421,8 @@ export default function GamePage() {
         <div className="game-modal-overlay">
           <div className="game-modal">
             <div className="game-modal__header">
-              <span>🔄 Restore Session</span>
-              <button onClick={() => setShowRestoreModal(false)}>×</button>
+              <span>Restore Session</span>
+              <button onClick={() => setShowRestoreModal(false)}><X size={16} /></button>
             </div>
             <div className="game-modal__body">
               {/* Fetch Unclaimed Plays */}
@@ -1433,14 +1434,14 @@ export default function GamePage() {
                   style={{ width: "100%", marginBottom: "12px" }}
                 >
                   {isFetchingUnclaimed
-                    ? "🔍 Đang tìm..."
-                    : "🔍 Tìm Play chưa claim"}
+                    ? "Searching..."
+                    : "Find Unclaimed Plays"}
                 </button>
 
                 {unclaimedPlays.length > 0 && (
                   <div className="unclaimed-list">
                     <div className="unclaimed-list-header">
-                      📋 Play chưa claim ({unclaimedPlays.length}):
+                      Unclaimed Plays ({unclaimedPlays.length}):
                     </div>
                     {unclaimedPlays.map((play) => (
                       <div
@@ -1454,12 +1455,12 @@ export default function GamePage() {
                       >
                         <span>Play #{play.playId}</span>
                         <span className="unclaimed-reward">
-                          💰 {play.minReward}-{play.maxReward}
+                          {play.minReward}-{play.maxReward}
                         </span>
                       </div>
                     ))}
                     <div className="unclaimed-note">
-                      ⚠️ Bạn vẫn cần nhập Key đã backup từ máy cũ!
+                      Note: You still need to enter the backup key from your old device.
                     </div>
                   </div>
                 )}
@@ -1477,7 +1478,7 @@ export default function GamePage() {
                 />
               </div>
               <div className="game-field">
-                <label>Key (32 ký tự hex) ⚠️ Bắt buộc</label>
+                <label>Key (32 hex characters) - Required</label>
                 <input
                   type="text"
                   value={restoreKeyHex}
@@ -1525,7 +1526,7 @@ export default function GamePage() {
                   setIsKeyFound(false);
                   setShowRestoreModal(false);
                   setPlayNotice(
-                    `✅ Session restored! Play ID: ${restorePlayId}`
+                    `Session restored! Play ID: ${restorePlayId}`
                   );
                 }}
                 disabled={!restorePlayId || !restoreKeyHex}
@@ -1547,7 +1548,7 @@ export default function GamePage() {
                 className="game-modal__close"
                 onClick={() => setShowStartModal(false)}
               >
-                X
+                <X size={16} />
               </button>
             </div>
             <div className="game-modal__body">
@@ -1682,7 +1683,7 @@ export default function GamePage() {
                 }
               >
                 {startMode === "player"
-                  ? "Player"
+                  ? "Play"
                   : startMode === "resume"
                     ? "Resume"
                     : "Play On-chain"}

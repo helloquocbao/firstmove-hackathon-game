@@ -149,60 +149,91 @@
 }
 
 .game-link {
-  padding: 8px 14px;
-  border-radius: 999px;
-  border: 1.5px solid rgba(126, 184, 232, 0.3);
-  background: rgba(126, 184, 232, 0.1);
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: 1px solid rgba(126, 184, 232, 0.2);
+  background: rgba(126, 184, 232, 0.05);
   backdrop-filter: blur(8px);
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 600;
-  color: #b8daff;
-  transition: all 0.2s ease;
+  color: #7eb8e8;
+  transition: all 0.3s ease;
   text-decoration: none;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
 }
 
 .game-link:hover {
-  background: rgba(126, 184, 232, 0.2);
-  border-color: rgba(126, 184, 232, 0.5);
+  border-color: #59b7ff;
+  background: rgba(89, 183, 255, 0.1);
   color: #fff;
-  transform: translateY(-1px);
+  box-shadow: 0 0 20px rgba(89, 183, 255, 0.3);
 }
 
 /* Header Right Side - Balance + Wallet */
 .game-header-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
 }
 
 .game-balance {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: rgba(126, 184, 232, 0.1);
-  border: 1px solid rgba(126, 184, 232, 0.2);
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: rgba(89, 183, 255, 0.1);
+  border: 1px solid rgba(89, 183, 255, 0.3);
+  font-family: var(--font-mono);
 }
 
 .game-balance__icon {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
 }
 
 .game-balance__value {
   font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 600;
-  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  color: #59b7ff;
 }
 
 .game-balance__label {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
+  font-weight: 600;
   color: #7eb8e8;
   text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Connect Button Override */
+.game-header-right button {
+  font-family: var(--font-mono) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.1em !important;
+  padding: 12px 20px !important;
+  border-radius: 10px !important;
+  background: linear-gradient(135deg, #59b7ff, #3d8fd1) !important;
+  border: 2px solid #59b7ff !important;
+  color: #0a1929 !important;
+  box-shadow: 
+    0 4px 20px rgba(89, 183, 255, 0.4),
+    inset 0 2px 0 rgba(255, 255, 255, 0.2) !important;
+  transition: all 0.3s ease !important;
+  cursor: pointer !important;
+}
+
+.game-header-right button:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 
+    0 8px 30px rgba(89, 183, 255, 0.5),
+    inset 0 2px 0 rgba(255, 255, 255, 0.3) !important;
 }
 
 /* ===== FLOATING SIDEBAR ===== */

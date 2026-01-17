@@ -359,7 +359,7 @@
 
 .panel__rows div {
   display: flex;
-  justify-content: space-between;
+  /* justify-content: space-between; */
   gap: 12px;
   border-bottom: 1px dashed var(--land-border);
   padding-bottom: 6px;

@@ -636,11 +636,38 @@ export default function EditorGame() {
     }
   }
 
-  async function refreshWorldAndMap() {
-    await loadWorldListAndMap();
+  async function refreshWorldAndMap(options?: { flyToNewest?: boolean } | React.MouseEvent) {
+    // Handle both direct calls with options and event handler calls
+    const flyToNewest = options && 'flyToNewest' in options ? options.flyToNewest : false;
+    
+    if (worldIdValue) {
+      // Add delay to ensure blockchain data is updated
+      if (flyToNewest) {
+        setNotice("Waiting for blockchain to update...");
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        setNotice("Loading updated world data...");
+      }
+      
+      const result = await loadWorldMap(worldIdValue);
+      
+      // Fly to newest chunk if requested
+      if (flyToNewest && result.newestChunkKey) {
+        const owner = result.owners[result.newestChunkKey];
+        const isMyChunk = owner && (owner === userId || (walletAddress && owner === walletAddress));
+        
+        if (isMyChunk) {
+          console.log("Flying to newest chunk:", result.newestChunkKey);
+          setNotice(`Chunk claimed successfully! Flying to ${result.newestChunkKey}...`);
+          // Small delay to ensure UI is updated
+          setTimeout(() => flyToChunk(result.newestChunkKey!), 300);
+        }
+      }
+    } else {
+      await loadWorldListAndMap();
+    }
   }
 
-  async function loadWorldMap(targetWorldId: string) {
+  async function loadWorldMap(targetWorldId: string): Promise<{ owners: ChunkOwners; newestChunkKey?: string }> {
     setMapLoadError("");
     setIsMapLoading(true);
     setLoadedChunks(null);
@@ -654,7 +681,7 @@ export default function EditorGame() {
       if (fieldEntries.length === 0) {
         setNotice("World has no chunks yet.");
         setLoadedChunks(0);
-        return;
+        return { owners: {} };
       }
 
       const chunkEntries = await resolveChunkEntries(
@@ -666,7 +693,7 @@ export default function EditorGame() {
       if (chunkEntries.length === 0) {
         setNotice("No chunk entries found.");
         setLoadedChunks(0);
-        return;
+        return { owners: {} };
       }
 
       const chunkIds = chunkEntries.map((entry) => entry.chunkId);
@@ -687,6 +714,10 @@ export default function EditorGame() {
         .fill(0)
         .map(() => Array(width).fill(0));
       const newOwners: ChunkOwners = {};
+      
+      // Track newest chunk by version
+      let newestVersion = 0;
+      let newestChunkKey: string | undefined;
 
       chunkEntries.forEach((entry, index) => {
         const response = chunkObjects[index];
@@ -720,19 +751,30 @@ export default function EditorGame() {
 
         const owner = extractOwnerAddress(response.data?.owner);
         if (owner) {
-          newOwners[makeChunkKey(entry.cx, entry.cy)] = owner;
+          const chunkKey = makeChunkKey(entry.cx, entry.cy);
+          newOwners[chunkKey] = owner;
+          
+          // Track newest chunk by version
+          if (entry.version > newestVersion) {
+            newestVersion = entry.version;
+            newestChunkKey = chunkKey;
+          }
         }
       });
 
       console.log("Final decoGrid:", newDecoGrid);
+      console.log("Newest chunk:", newestChunkKey, "version:", newestVersion);
 
       setGrid(newGrid);
       setDecoGrid(newDecoGrid);
       setChunkOwners(newOwners);
       setLoadedChunks(chunkEntries.length);
       setNotice(`Loaded ${chunkEntries.length} chunks from chain.`);
+      
+      return { owners: newOwners, newestChunkKey };
     } catch (error) {
       setMapLoadError(error instanceof Error ? error.message : String(error));
+      return { owners: {} };
     } finally {
       setIsMapLoading(false);
     }
@@ -934,7 +976,7 @@ export default function EditorGame() {
           ],
         });
       },
-      () => refreshWorldAndMap(),
+      () => refreshWorldAndMap({ flyToNewest: true }),
     );
   }
 
@@ -1256,7 +1298,7 @@ export default function EditorGame() {
                     </span>
                   </div>
                   {myChunks.length > 0 && (
-                    <div className="grid grid-cols-3 gap-2 mt-2 max-h-[160px] overflow-y-auto pr-1 custom-scrollbar">
+                    <div className="flex gap-2 flex-wrap mt-2 max-h-[160px] overflow-y-auto pr-1 custom-scrollbar">
                       {myChunks.map((key) => (
                         <button
                           key={key}
@@ -2162,7 +2204,12 @@ async function resolveChunkEntries(
       const fieldFields = normalizeMoveFields(content.fields);
       const chunkId = extractObjectId(fieldFields.value);
       if (!chunkId) return null;
-      return { ...coords, chunkId };
+      
+      // Get version from object metadata
+      const version = fieldObject.data?.version;
+      const versionNumber = typeof version === 'string' ? parseInt(version, 10) : 0;
+      
+      return { ...coords, chunkId, version: versionNumber };
     }),
   );
 
@@ -2174,10 +2221,11 @@ async function resolveChunkEntries(
         cx: number;
         cy: number;
         chunkId: string;
+        version: number;
       }> => result.status === "fulfilled",
     )
     .map((result) => result.value)
-    .filter((entry): entry is { cx: number; cy: number; chunkId: string } =>
+    .filter((entry): entry is { cx: number; cy: number; chunkId: string; version: number } =>
       Boolean(entry),
     );
 }

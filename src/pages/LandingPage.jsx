@@ -67,6 +67,7 @@ export default function LandingPage() {
           <nav className="landing__links">
             <Link to="/editor">Editor</Link>
             <Link to="/game">Play Now</Link>
+            <Link to="/marketplace">Marketplace</Link>
           </nav>
 
           <div className="wallet-connect-btn">
@@ -186,10 +187,11 @@ export default function LandingPage() {
         {/* Footer */}
         <footer className="landing__footer landing__reveal" style={{ "--delay": "0.45s" }}>
           <div>Build together. Own your world. Play on Sui.</div>
-          <div className="landing__foot-links">
-            <Link to="/editor">Editor</Link>
-            <Link to="/game">Play</Link>
-          </div>
+            <div className="landing__foot-links">
+              <Link to="/editor">Editor</Link>
+              <Link to="/game">Play</Link>
+              <Link to="/marketplace">Marketplace</Link>
+            </div>
         </footer>
       </div>
     </div>

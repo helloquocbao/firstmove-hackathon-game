@@ -1,0 +1,96 @@
+.marketplace-page {
+  padding: 24px;
+}
+
+.marketplace-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.marketplace-header h1 {
+  margin: 0;
+}
+
+.marketplace-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.marketplace-wallet {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.marketplace-panel {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 16px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.marketplace-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.marketplace-panel__header button {
+  background: #1e1f24;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.marketplace-status {
+  margin-bottom: 12px;
+  font-size: 14px;
+  color: #ffd88a;
+}
+
+.marketplace-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.marketplace-card {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.marketplace-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  margin: 0;
+}
+
+.marketplace-value {
+  margin: 0;
+  font-size: 14px;
+  word-break: break-all;
+}
+
+.marketplace-buy-btn {
+  margin-top: 8px;
+  border: none;
+  background: #5e9bff;
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.marketplace-empty {
+  text-align: center;
+  color: rgba(255, 255, 255, 0.7);
+}

@@ -660,6 +660,7 @@ export function startGame(mapData?: GameMapData) {
         speed: 200,
         facing: 1, // 1 right, -1 left
         attacking: false,
+        attackFacing: 1,
       },
       scale(0.3),
       opacity(1),
@@ -824,11 +825,13 @@ export function startGame(mapData?: GameMapData) {
     }
 
     onKeyDown("a", () => {
+      if (player.attacking) return;
       moveDir.x = -1;
       player.facing = -1;
     });
 
     onKeyDown("d", () => {
+      if (player.attacking) return;
       moveDir.x = 1;
       player.facing = 1;
     });
@@ -881,8 +884,9 @@ export function startGame(mapData?: GameMapData) {
     /* ================= ATTACK ================= */
 
     function spawnAttackHitbox() {
+      const attackFacing = player.attackFacing ?? player.facing;
       add([
-        pos(player.pos.x + player.facing * 12, player.pos.y),
+        pos(player.pos.x + attackFacing * 12, player.pos.y),
         area({ shape: new Rect(vec2(1), 28, 26) }),
         anchor("center"),
         lifespan(0.1),
@@ -894,6 +898,7 @@ export function startGame(mapData?: GameMapData) {
       if (player.attacking) return;
 
       player.attacking = true;
+      player.attackFacing = player.facing;
 
       player.use(sprite("player-attack"));
       player.play("attack");

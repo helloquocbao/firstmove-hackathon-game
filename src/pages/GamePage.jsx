@@ -898,6 +898,18 @@ export default function GamePage() {
       return;
     }
 
+    if (startMode === "resume") {
+      const nextMapData = pendingMapData ?? getStoredMapData();
+      if (!nextMapData) {
+        setStartModalError("World not ready yet.");
+        return;
+      }
+      setIsGameStarted(true);
+      setShowStartModal(false);
+      startGame(nextMapData);
+      return;
+    }
+
     if (!account?.address) {
       setStartModalError("Connect wallet to play on-chain.");
       return;
@@ -1068,6 +1080,7 @@ export default function GamePage() {
 
   const mapReady =
     !isMapLoading && Boolean(pendingMapData ?? getStoredMapData());
+  const hasPendingPlay = Boolean(playId);
 
   return (
     <div className="game-page">
@@ -1585,6 +1598,30 @@ export default function GamePage() {
                     </div>
                   </div>
                 </label>
+                {hasPendingPlay && (
+                  <label
+                    className={`game-start-option ${
+                      startMode === "resume" ? "active" : ""
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="startMode"
+                      value="resume"
+                      checked={startMode === "resume"}
+                      onChange={(e) => setStartMode(e.target.value)}
+                      disabled={!mapReady}
+                    />
+                    <div>
+                      <div className="game-start-option__title">
+                        Resume Key
+                      </div>
+                      <div className="game-start-option__note">
+                        Continue your unclaimed play (#{playId}).
+                      </div>
+                    </div>
+                  </label>
+                )}
                 <label
                   className={`game-start-option ${
                     startMode === "chain" ? "active" : ""
@@ -1668,7 +1705,11 @@ export default function GamePage() {
                   !mapReady || (startMode === "chain" && isWalletBusy)
                 }
               >
-                {startMode === "player" ? "Player" : "Play On-chain"}
+                {startMode === "player"
+                  ? "Player"
+                  : startMode === "resume"
+                    ? "Resume"
+                    : "Play On-chain"}
               </button>
             </div>
           </div>

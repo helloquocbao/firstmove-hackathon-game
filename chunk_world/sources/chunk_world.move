@@ -29,7 +29,7 @@ module chunk_world::world {
     const PLAY_FEE: u64 = 5;
     const MIN_REWARD: u64 = 2;
     const MAX_REWARD: u64 = 15;
-    const MAX_CHUNKS: u64 = 20;
+    // const MAX_CHUNKS: u64 = 20;
     const CHUNK_PRICE_INCREMENT: u64 = 5; // mỗi chunk sau mắc hơn 5 coin
     const DAILY_PLAY_LIMIT: u64 = 3;      // giới hạn 3 lần chơi mỗi epoch (~24h) cho play_v2
     const FREE_DAILY_PLAY_LIMIT: u64 = 2; // giới hạn 2 lần chơi miễn phí mỗi epoch cho play_v1
@@ -52,7 +52,6 @@ module chunk_world::world {
     const E_CHARACTER_ALREADY_EXISTS: u64 = 13;
     const E_INSUFFICIENT_POWER: u64 = 15;
     const E_INVALID_NAME: u64 = 16;
-    const E_MAX_CHUNKS_REACHED: u64 = 17;
     const E_DAILY_PLAY_LIMIT_REACHED: u64 = 18;
     const E_FREE_DAILY_LIMIT_REACHED: u64 = 19;
     const E_LISTING_ALREADY_EXISTS: u64 = 20;
@@ -417,10 +416,14 @@ module chunk_world::world {
         mut payment: Coin<reward_coin::REWARD_COIN>,
         ctx: &mut TxContext
     ) {
-        assert!(world.chunk_count < MAX_CHUNKS, E_MAX_CHUNKS_REACHED);
+        // assert!(world.chunk_count < MAX_CHUNKS, E_MAX_CHUNKS_REACHED);
         
-        // Tính giá chunk: chunk đầu = 0, chunk sau mắc hơn 5 coin
-        let chunk_price = world.chunk_count * CHUNK_PRICE_INCREMENT;
+        // Tính giá chunk: chunk đầu = 0, chunk sau mắc hơn 5 coin, từ chunk 20 trở đi giá giữ nguyên
+        let chunk_price = if (world.chunk_count < 20) {
+            world.chunk_count * CHUNK_PRICE_INCREMENT
+        } else {
+            20 * CHUNK_PRICE_INCREMENT
+        };
         let payment_value = coin::value(&payment);
         assert!(payment_value >= chunk_price, E_INVALID_FEE);
         

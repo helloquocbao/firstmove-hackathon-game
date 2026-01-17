@@ -102,6 +102,9 @@ export default function EditorGame() {
   const [playKey, setPlayKey] = useState<string>("");
   const [rewardCoinId, setRewardCoinId] = useState<string>("");
 
+  // Admin check
+  const [adminCapOwner, setAdminCapOwner] = useState<string>("");
+
   const chunkIdCacheRef = useRef<Record<string, string>>({});
   const hoverRequestRef = useRef(0);
   const gridWrapRef = useRef<HTMLDivElement | null>(null);
@@ -131,12 +134,39 @@ export default function EditorGame() {
     })();
   }, [WORLD_REGISTRY_ID]);
 
+  // Fetch AdminCap owner to check if connected wallet is admin
+  useEffect(() => {
+    async function fetchAdminCapOwner() {
+      if (!ADMIN_CAP_ID) {
+        setAdminCapOwner("");
+        return;
+      }
+      try {
+        const resp = await suiClient.getObject({
+          id: ADMIN_CAP_ID,
+          options: { showOwner: true },
+        });
+        const owner = resp.data?.owner;
+        if (owner && typeof owner === "object" && "AddressOwner" in owner) {
+          setAdminCapOwner(owner.AddressOwner as string);
+        } else {
+          setAdminCapOwner("");
+        }
+      } catch (e) {
+        console.error("Failed to fetch AdminCap owner:", e);
+        setAdminCapOwner("");
+      }
+    }
+    void fetchAdminCapOwner();
+  }, []);
+
   const gridWidth = grid[0]?.length ?? 0;
   const gridHeight = grid.length;
   const worldIdValue = worldId;
   const isConnected = Boolean(account?.address);
   const isBusy = isPending || Boolean(busyAction);
   const walletAddress = account?.address ?? "";
+  const isAdmin = Boolean(walletAddress && adminCapOwner && walletAddress === adminCapOwner);
   const isOwnerMatch = (owner?: string) =>
     Boolean(
       owner && (owner === userId || (walletAddress && owner === walletAddress)),
@@ -1235,7 +1265,7 @@ export default function EditorGame() {
 
             <div className="panel">
               <div className="panel__title">Paint Layer</div>
-              <div className="editor-layer-toggle">
+              <div className="flex gap-2">
                 <button
                   className={`btn ${
                     paintLayer === "base" ? "btn--primary" : "btn--outline"
@@ -1508,56 +1538,58 @@ export default function EditorGame() {
               {txError && <div className="panel__error">{txError}</div>}
             </div>
 
-            <div className="panel">
-              <div className="panel__title">World admin</div>
-              <p className="panel__desc">
-                Create the shared world object using the admin cap.
-              </p>
-              <div className="panel__field">
-                <label>World Name (1-64 chars)</label>
-                <input
-                  className="input"
-                  type="text"
-                  maxLength={64}
-                  value={worldName}
-                  onChange={(e) => setWorldName(e.target.value)}
-                  placeholder="Enter world name..."
-                />
-              </div>
-              <div className="panel__field">
-                <label>Difficulty (1-9)</label>
-                <select
-                  className="input"
-                  value={worldDifficulty}
-                  onChange={(e) => setWorldDifficulty(Number(e.target.value))}
+            {isAdmin && (
+              <div className="panel">
+                <div className="panel__title">World admin</div>
+                <p className="panel__desc">
+                  Create the shared world object using the admin cap.
+                </p>
+                <div className="panel__field">
+                  <label>World Name (1-64 chars)</label>
+                  <input
+                    className="input"
+                    type="text"
+                    maxLength={64}
+                    value={worldName}
+                    onChange={(e) => setWorldName(e.target.value)}
+                    placeholder="Enter world name..."
+                  />
+                </div>
+                <div className="panel__field">
+                  <label>Difficulty (1-9)</label>
+                  <select
+                    className="input"
+                    value={worldDifficulty}
+                    onChange={(e) => setWorldDifficulty(Number(e.target.value))}
+                  >
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="panel__field">
+                  <label>Required Power</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    value={worldRequiredPower}
+                    onChange={(e) =>
+                      setWorldRequiredPower(Number(e.target.value))
+                    }
+                  />
+                </div>
+                <button
+                  className="btn btn--primary"
+                  onClick={createWorldOnChain}
+                  disabled={isBusy || !isConnected}
                 >
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => (
-                    <option key={d} value={d}>
-                      {d}
-                    </option>
-                  ))}
-                </select>
+                  {busyAction === "Create world" ? "Creating..." : "Create world"}
+                </button>
               </div>
-              <div className="panel__field">
-                <label>Required Power</label>
-                <input
-                  className="input"
-                  type="number"
-                  min="0"
-                  value={worldRequiredPower}
-                  onChange={(e) =>
-                    setWorldRequiredPower(Number(e.target.value))
-                  }
-                />
-              </div>
-              <button
-                className="btn btn--primary"
-                onClick={createWorldOnChain}
-                disabled={isBusy || !isConnected}
-              >
-                {busyAction === "Create world" ? "Creating..." : "Create world"}
-              </button>
-            </div>
+            )}
           </aside>
         </div>
 
@@ -1710,7 +1742,7 @@ export default function EditorGame() {
                 <div className="editor-modal__tiles">
                   <div className="panel__title">Paint Layer</div>
                   <div
-                    className="editor-layer-toggle"
+                    className="flex gap-2"
                     style={{ marginBottom: "12px" }}
                   >
                     <button

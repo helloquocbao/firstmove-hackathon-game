@@ -315,8 +315,8 @@ export default function GamePage() {
               typeof record.world_id === "string"
                 ? record.world_id
                 : typeof record.worldId === "string"
-                ? record.worldId
-                : "";
+                  ? record.worldId
+                  : "";
             if (id) ids.add(id);
           }
 
@@ -417,8 +417,8 @@ export default function GamePage() {
         typeof parsed.play_id === "string"
           ? parsed.play_id
           : typeof parsed.play_id === "number"
-          ? String(parsed.play_id)
-          : "";
+            ? String(parsed.play_id)
+            : "";
 
       if (nextPlayId) {
         storePlayState({
@@ -599,10 +599,15 @@ export default function GamePage() {
         .fill(0)
         .map(() => Array(width).fill(0));
 
-      chunkEntries.forEach((entry, index) => {
+      for (let index = 0; index < chunkEntries.length; index++) {
+        const entry = chunkEntries[index];
         const response = chunkObjects[index];
-        const content = response.data?.content;
-        if (!content || content.dataType !== "moveObject") return;
+        let content = response.data?.content;
+        if (!content || content.dataType !== "moveObject") {
+          content = await fetchListedChunk(targetWorldId, entry.chunkId);
+          console.log("Fetched listed chunk:", content);
+        }
+        if (!content || content.dataType !== "moveObject") continue;
         const fields = normalizeMoveFields(content.fields);
         const tiles = normalizeMoveVector(fields.tiles).map((tile) =>
           normalizeTileId(clampU8(parseU32Value(tile) ?? 0, 255))
@@ -620,7 +625,7 @@ export default function GamePage() {
               decorations[idx] ?? 0;
           }
         }
-      });
+      }
 
       const mapData = {
         tileSize: TILE_SIZE,
@@ -819,8 +824,8 @@ export default function GamePage() {
         typeof parsed.play_id === "string"
           ? parsed.play_id
           : typeof parsed.play_id === "number"
-          ? String(parsed.play_id)
-          : "";
+            ? String(parsed.play_id)
+            : "";
       console.log("nextPlayId", nextPlayId);
       if (!nextPlayId) {
         setPlayError("Play created but play_id not found.");
@@ -912,8 +917,8 @@ export default function GamePage() {
         typeof parsed.reward === "string"
           ? parsed.reward
           : typeof parsed.reward === "number"
-          ? String(parsed.reward)
-          : "";
+            ? String(parsed.reward)
+            : "";
 
       resetPlayState(
         rewardValue ? `Claimed ${rewardValue} CHUNK.` : "Claimed reward."
@@ -1541,16 +1546,20 @@ function extractObjectId(value) {
   if (!value || typeof value !== "object") return "";
 
   const record = value;
+  if (typeof record.bytes === "string") return record.bytes;
   if (typeof record.id === "string") return record.id;
   if (record.id && typeof record.id === "object") {
     const nested = record.id;
+    if (typeof nested.bytes === "string") return nested.bytes;
     if (typeof nested.id === "string") return nested.id;
   }
   if (record.fields && typeof record.fields === "object") {
     const fields = record.fields;
+    if (typeof fields.bytes === "string") return fields.bytes;
     if (typeof fields.id === "string") return fields.id;
     if (fields.id && typeof fields.id === "object") {
       const nested = fields.id;
+      if (typeof nested.bytes === "string") return nested.bytes;
       if (typeof nested.id === "string") return nested.id;
     }
   }
@@ -1622,12 +1631,12 @@ function matchesPlayId(parsedJson, targetPlayId) {
     typeof record.play_id === "string"
       ? record.play_id
       : typeof record.play_id === "number"
-      ? String(record.play_id)
-      : typeof record.playId === "string"
-      ? record.playId
-      : typeof record.playId === "number"
-      ? String(record.playId)
-      : "";
+        ? String(record.play_id)
+        : typeof record.playId === "string"
+          ? record.playId
+          : typeof record.playId === "number"
+            ? String(record.playId)
+            : "";
   return candidate === targetPlayId;
 }
 
@@ -1658,4 +1667,94 @@ async function hasRewardBeenClaimed(targetPlayId) {
   }
 
   return false;
+}
+
+async function fetchListedChunk(worldId, chunkId) {
+  if (!PACKAGE_ID || !worldId || !chunkId) return null;
+  const directName = {
+    type: `${PACKAGE_ID}::world::ListingKey`,
+    value: { chunk_id: chunkId },
+  };
+  const directContent = await loadListingContent(worldId, directName);
+  if (directContent) return directContent;
+
+  const wrappedName = {
+    type: `${PACKAGE_ID}::world::ListingKey`,
+    value: { chunk_id: { id: chunkId } },
+  };
+  const wrappedContent = await loadListingContent(worldId, wrappedName);
+  if (wrappedContent) return wrappedContent;
+
+  const bytesName = {
+    type: `${PACKAGE_ID}::world::ListingKey`,
+    value: { chunk_id: { bytes: chunkId } },
+  };
+  const bytesContent = await loadListingContent(worldId, bytesName);
+  if (bytesContent) return bytesContent;
+
+  const wrappedBytesName = {
+    type: `${PACKAGE_ID}::world::ListingKey`,
+    value: { chunk_id: { id: { bytes: chunkId } } },
+  };
+  const wrappedBytesContent = await loadListingContent(worldId, wrappedBytesName);
+  if (wrappedBytesContent) return wrappedBytesContent;
+
+  let cursor = null;
+  let hasNextPage = true;
+
+  while (hasNextPage) {
+    const page = await suiClient.getDynamicFields({
+      parentId: worldId,
+      cursor: cursor ?? undefined,
+      limit: 200,
+    });
+
+    for (const field of page.data ?? []) {
+      if (!field?.name?.type || !field.name.type.includes("ListingKey"))
+        continue;
+      const candidateId = extractListingChunkId(field.name.value);
+      if (candidateId && candidateId === chunkId) {
+        return await loadListingContent(worldId, field.name);
+      }
+    }
+
+    cursor = page.nextCursor ?? null;
+    hasNextPage = page.hasNextPage;
+  }
+
+  return null;
+}
+
+async function loadListingContent(worldId, fieldName) {
+  try {
+    const fieldObject = await suiClient.getDynamicFieldObject({
+      parentId: worldId,
+      name: fieldName,
+    });
+    const content = fieldObject.data?.content;
+    if (!content || content.dataType !== "moveObject") return null;
+    const listingFields = normalizeMoveFields(content.fields);
+    const chunk = listingFields.chunk;
+    if (!chunk) return null;
+    return {
+      dataType: "moveObject",
+      fields: normalizeMoveFields(chunk),
+    };
+  } catch (error) {
+    return null;
+  }
+}
+
+function extractListingChunkId(value) {
+  const fields = normalizeMoveFields(value);
+  const raw = fields.chunk_id ?? fields.chunkId;
+  const extracted = extractObjectId(raw);
+  if (extracted) return extracted;
+  if (typeof raw === "string") return raw;
+  if (raw && typeof raw === "object") {
+    const rawFields = normalizeMoveFields(raw);
+    if (typeof rawFields.bytes === "string") return rawFields.bytes;
+  }
+  const fallback = extractObjectId(fields);
+  return fallback || "";
 }

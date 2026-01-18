@@ -110,6 +110,7 @@ export default function Marketplace() {
   const [withdrawStatus, setWithdrawStatus] = useState("");
   const [isWithdrawing, setIsWithdrawing] = useState(false);
   const [recentSales, setRecentSales] = useState<SoldEvent[]>([]);
+  const [chunkImages, setChunkImages] = useState<Record<string, string>>({});
 
   const chunkType = PACKAGE_ID ? `${PACKAGE_ID}::world::ChunkNFT` : "";
 
@@ -144,6 +145,10 @@ export default function Marketplace() {
     if (!PACKAGE_ID) return;
     setIsLoading(true);
     try {
+      const dynamicListings =
+        worldId && worldId.length > 0
+          ? await fetchListingsFromDynamicFields(worldId)
+          : [];
       const listedType = `${PACKAGE_ID}::world::ChunkListedEvent`;
       const soldType = `${PACKAGE_ID}::world::ChunkSoldEvent`;
       const delistedType = `${PACKAGE_ID}::world::ChunkDelistedEvent`;
@@ -250,7 +255,9 @@ export default function Marketplace() {
         .filter((item): item is Listing => Boolean(item))
         .filter((item) => !closedIds.has(item.chunkId));
       console.log(`parsed`, parsed);
-      setListings(parsed);
+      const merged = mergeListings(parsed, dynamicListings);
+      setListings(merged);
+      void fetchChunkImages(merged);
     } catch (error) {
       console.error("Failed to load listings:", error);
       setStatus("Failed to load listings, please try again.");
@@ -542,6 +549,106 @@ export default function Marketplace() {
     } finally {
       setIsWithdrawing(false);
     }
+  }
+
+  async function fetchChunkImages(items: Listing[]) {
+    const idsToFetch = items
+      .map((item) => item.chunkId)
+      .filter((id) => !chunkImages[id]);
+    if (idsToFetch.length === 0) return;
+
+    const results = await Promise.allSettled(
+      idsToFetch.map((id) =>
+        suiClient.getObject({
+          id,
+          options: { showContent: true },
+        }),
+      ),
+    );
+
+    const nextImages: Record<string, string> = {};
+    results.forEach((result, index) => {
+      if (result.status !== "fulfilled") return;
+      const response = result.value;
+      const content = response.data?.content;
+      if (!content || content.dataType !== "moveObject") return;
+      const fields = normalizeMoveFields(content.fields);
+      const candidate =
+        typeof fields.image_url === "string"
+          ? fields.image_url
+          : typeof fields.imageUrl === "string"
+            ? fields.imageUrl
+            : "";
+      if (candidate) {
+        nextImages[idsToFetch[index]] = candidate;
+      }
+    });
+
+    if (Object.keys(nextImages).length > 0) {
+      setChunkImages((prev) => ({ ...prev, ...nextImages }));
+    }
+  }
+
+  async function fetchListingsFromDynamicFields(worldObjectId: string) {
+    try {
+      const page = await suiClient.getDynamicFields({
+        parentId: worldObjectId,
+        limit: 200,
+      });
+
+      const listingIds = page.data.map((item) => item.objectId);
+      if (listingIds.length === 0) return [];
+
+      const listings = await suiClient.multiGetObjects({
+        ids: listingIds,
+        options: { showContent: true },
+      });
+
+      return listings
+        .map((object) => {
+          const content = object.data?.content;
+          if (!content || content.dataType !== "moveObject") return null;
+          const fields = normalizeMoveFields(content.fields);
+
+          // Filter only listing objects
+          const type = content.type || "";
+          if (!type.includes("ChunkListing")) return null;
+
+          const chunk = normalizeMoveFields(fields.chunk);
+          const chunkId = extractObjectId(fields.chunk) || extractObjectId(chunk);
+          const price = Number(fields.price ?? 0);
+          const seller =
+            typeof fields.seller === "string" ? fields.seller : undefined;
+          const worldIdFromChunk =
+            typeof chunk.world_id === "string"
+              ? chunk.world_id
+              : typeof chunk.worldId === "string"
+                ? chunk.worldId
+                : worldObjectId;
+
+          if (!chunkId || !price || !seller) return null;
+          return {
+            chunkId,
+            worldId: worldIdFromChunk,
+            seller,
+            price,
+            timestamp: object.data?.timestampMs ?? Date.now(),
+          } satisfies Listing;
+        })
+        .filter((item): item is Listing => Boolean(item));
+    } catch (error) {
+      console.error("Failed to fetch listings from dynamic fields", error);
+      return [];
+    }
+  }
+
+  function mergeListings(primary: Listing[], fallback: Listing[]) {
+    const map = new Map<string, Listing>();
+    fallback.forEach((item) => map.set(item.chunkId, item));
+    primary.forEach((item) => map.set(item.chunkId, item));
+    return Array.from(map.values()).sort(
+      (a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0),
+    );
   }
 
   const cardBackground = (seed: string) => {
@@ -1075,7 +1182,14 @@ export default function Marketplace() {
                   <div
                     className="marketplace-listing-card__preview"
                     style={{ background: cardBackground(listing.chunkId) }}
-                  />
+                  >
+                    {chunkImages[listing.chunkId] ? (
+                      <img
+                        src={chunkImages[listing.chunkId]}
+                        alt={`Chunk ${truncateAddress(listing.chunkId, 8, 4)}`}
+                      />
+                    ) : null}
+                  </div>
                   <div className="marketplace-listing-card__body">
                     <div className="marketplace-listing-card__info">
                       <div className="marketplace-listing-card__row">

@@ -815,6 +815,26 @@ module chunk_world::world {
         chunk.decorations = decorations;
     }
 
+    /// Update tiles, decorations, and image URL together (one tx)
+     entry fun update_chunk(
+        chunk: &mut ChunkNFT,
+        tiles: vector<u8>,
+        decorations: vector<u8>,
+        new_url: String,
+    ) {
+        assert!(vector::length(&tiles) == TILES_LEN, E_INVALID_TILES_LEN);
+        assert!(vector::length(&decorations) == TILES_LEN, E_INVALID_TILES_LEN);
+        assert_tiles_valid(&tiles);
+        assert_decorations_valid(&decorations);
+        assert!(string::length(&new_url) <= MAX_URL_BYTES, E_URL_TOO_LONG);
+
+        chunk.tiles = tiles;
+        chunk.decorations = decorations;
+        chunk.image_url = new_url;
+
+        event::emit(ChunkImageUpdatedEvent { chunk_id: object::uid_to_inner(&chunk.id) });
+    }
+
      entry fun set_image_url(chunk: &mut ChunkNFT, new_url: String) {
         assert!(string::length(&new_url) <= MAX_URL_BYTES, E_URL_TOO_LONG);
         chunk.image_url = new_url;

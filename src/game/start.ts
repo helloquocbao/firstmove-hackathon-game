@@ -159,6 +159,14 @@ export function startGame(mapData?: GameMapData) {
   });
   
   loadSprite("chest", "/sprites/rewards/chest_1.png");
+  
+  // Key animation: 24 frames in horizontal row
+  loadSprite("key", "/rewards/key_animation.png", {
+    sliceX: 24,
+    anims: {
+      spin: { from: 0, to: 23, speed: 12, loop: true },
+    },
+  });
 
   /* ================= MAP ================= */
 
@@ -1286,19 +1294,12 @@ export function startGame(mapData?: GameMapData) {
         target.y * tileSize + tileSize / 2,
       );
       const keyObj = add([
-        rect(tileSize * 0.6, tileSize * 0.6),
+        sprite("key", { anim: "spin" }),
         pos(keyPos),
-        area(),
+        area({ shape: new Rect(vec2(0), tileSize * 0.8, tileSize * 0.8) }),
         anchor("center"),
-        color(250, 210, 72),
+        scale(1.5),
         "key",
-      ]);
-      // Key icon/text
-      const label = add([
-        text("KEY", { size: 8 }),
-        pos(keyPos),
-        anchor("center"),
-        color(0, 0, 0),
       ]);
       
       let keyFound = false;
@@ -1306,7 +1307,6 @@ export function startGame(mapData?: GameMapData) {
         if (keyFound) return;
         keyFound = true;
         keyObj.destroy();
-        label.destroy();
         markKeyFound(target, pId);
       });
     }

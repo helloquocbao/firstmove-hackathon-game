@@ -1,5 +1,1 @@
-export {
-	useWalrusImageUpload,
-	useWalrusUpload,
-	getWalrusImageUrl,
-} from "./useWalrusUpload";
+export { useWalrusUpload } from "./useWalrusUpload";

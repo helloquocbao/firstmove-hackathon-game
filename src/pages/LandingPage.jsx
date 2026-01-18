@@ -1,8 +1,6 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ConnectButton, useCurrentAccount } from "@mysten/dapp-kit";
-import { REWARD_COIN_TYPE } from "../chain/config";
-import { suiClient } from "../chain/suiClient";
+import { WalletHeader } from "../components";
 import "./LandingPage.css";
 
 const features = [
@@ -37,8 +35,8 @@ const gameFeatures = [
       "WASD movement, combat system. Explore worlds built by the community.",
   },
   {
-    icon: "💎",
-    title: "NFT Rewards",
+    icon: <img src="https://ik.imagekit.io/huubao/chunk_coin.png" alt="logo" className="w-12 h-12 mt-3" />,
+    title: "Token Rewards",
     description:
       "Find hidden keys, claim CHUNK tokens, and earn while you play.",
   },
@@ -51,34 +49,6 @@ const gameFeatures = [
 ];
 
 export default function LandingPage() {
-  const account = useCurrentAccount();
-  const [rewardBalance, setRewardBalance] = useState(0);
-
-  useEffect(() => {
-    async function fetchBalance() {
-      if (!account?.address || !REWARD_COIN_TYPE) {
-        setRewardBalance(0);
-        return;
-      }
-      try {
-        const coins = await suiClient.getCoins({
-          owner: account.address,
-          coinType: REWARD_COIN_TYPE,
-        });
-        const total = coins.data.reduce(
-          (sum, coin) => sum + BigInt(coin.balance),
-          BigInt(0),
-        );
-        // DECIMALS = 0 in reward_coin.move, so no division needed
-        setRewardBalance(Number(total));
-      } catch (err) {
-        console.error("Failed to fetch reward balance:", err);
-        setRewardBalance(0);
-      }
-    }
-    fetchBalance();
-  }, [account?.address]);
-
   return (
     <div className="landing">
       <div className="landing__bg">
@@ -97,7 +67,7 @@ export default function LandingPage() {
           style={{ "--delay": "0s" }}
         >
           <div className="brand">
-            <div className="brand__mark">CW</div>
+            <img src="https://ik.imagekit.io/huubao/chunk_coin.png" alt="logo" className="w-12 h-12" />
             <div>
               <div className="brand__name">Chunk World</div>
               <div className="brand__tag">Sky Adventures on Sui</div>
@@ -110,26 +80,7 @@ export default function LandingPage() {
             <Link to="/marketplace">Marketplace</Link>
           </nav>
 
-          <div className="header-right">
-            {account && (
-              <div className="reward-balance">
-                <span className="reward-balance__icon">
-                  <img
-                    alt="icon"
-                    className="w-4 h-4"
-                    src="https://ik.imagekit.io/huubao/chunk_coin.png?updatedAt=1768641987539"
-                  />
-                </span>
-                <span className="reward-balance__value">
-                  {rewardBalance.toLocaleString()}
-                </span>
-                <span className="reward-balance__label">CHUNK</span>
-              </div>
-            )}
-            <div className="wallet-connect-btn">
-              <ConnectButton />
-            </div>
-          </div>
+          <WalletHeader />
         </header>
 
         {/* Hero Section */}
@@ -233,7 +184,7 @@ export default function LandingPage() {
           <div className="features__grid">
             {gameFeatures.map((feature) => (
               <div key={feature.title} className="feature-card">
-                <div className="feature-card__icon">{feature.icon}</div>
+                <div className="feature-card__icon flex justify-center">{feature.icon}</div>
                 <div className="feature-card__title">{feature.title}</div>
                 <div className="feature-card__desc">{feature.description}</div>
               </div>

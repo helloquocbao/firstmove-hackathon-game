@@ -16,12 +16,15 @@ import {
   EnemyConfig,
   DifficultyInfo,
 } from "./enemyMaintainer";
+import { soundManager } from "./soundManager";
 
 let started = false;
+let kaboomInstance: ReturnType<typeof kaboom> | null = null;
 const TILE = 32;
 const CHUNK_SIZE = 5;
 const PLAY_STATE_KEY = "PLAY_STATE";
 const PLAY_TARGET_KEY = "PLAY_TARGET";
+const PLAY_CHESTS_KEY = "PLAY_CHESTS";
 
 type GameMapData = {
   tileSize: number;
@@ -33,18 +36,45 @@ type GameMapData = {
   chunkCount?: number; // Number of chunks
 };
 
+// Reset game state - call this when unmounting GamePage component
+export function resetGame() {
+  if (kaboomInstance) {
+    try {
+      // Clean up kaboom instance
+      kaboomInstance.quit();
+    } catch (e) {
+      console.warn("Error cleaning up kaboom:", e);
+    }
+    kaboomInstance = null;
+  }
+  started = false;
+  stopEnemyMaintainer();
+}
+
 export function startGame(mapData?: GameMapData) {
-  if (started) {
+  // If canvas doesn't exist, don't start (component not mounted)
+  const canvas = document.getElementById("game") as HTMLCanvasElement;
+  if (!canvas) {
+    console.warn("Canvas element not found, skipping game start");
+    return;
+  }
+
+  if (started && kaboomInstance) {
     if (mapData) {
       console.log("Restarting game with new map data", mapData);
       go("game", { mapData });
     }
     return;
   }
+  
+  // Reset if started but no kaboom instance (stale state)
+  if (started && !kaboomInstance) {
+    started = false;
+  }
+  
   started = true;
 
   // Get actual viewport size for fullscreen
-  const canvas = document.getElementById("game") as HTMLCanvasElement;
   const initialWidth = window.innerWidth;
   const initialHeight = window.innerHeight;
 
@@ -57,6 +87,9 @@ export function startGame(mapData?: GameMapData) {
     scale: 1,
     crisp: true,
   });
+  
+  // Store instance for cleanup
+  kaboomInstance = k;
 
   // Handle window resize to keep game fullscreen
   window.addEventListener("resize", () => {
@@ -106,12 +139,33 @@ export function startGame(mapData?: GameMapData) {
     },
   });
 
+  // Yod sprite sheet: 3 rows, 7 columns
+  // Row 0: Idle (6 frames), Row 1: Run (6 frames), Row 2: Attack (7 frames)
+  loadSprite("yod", "/sprites/goblin/Yod.png", {
+    sliceX: 7,
+    sliceY: 3,
+    anims: {
+      idle: { from: 0, to: 5, speed: 8, loop: true },
+      run: { from: 7, to: 12, speed: 10, loop: true },
+      attack: { from: 14, to: 20, speed: 12 },
+    },
+  });
   TILE_DEFS.forEach((tile) => {
     loadSprite(tile.name, tile.image);
   });
 
   DECO_DEFS.forEach((deco) => {
     loadSprite(deco.name, deco.image);
+  });
+  
+  loadSprite("chest", "/sprites/rewards/chest_1.png");
+  
+  // Key animation: 24 frames in horizontal row
+  loadSprite("key", "/rewards/key_animation.png", {
+    sliceX: 24,
+    anims: {
+      spin: { from: 0, to: 23, speed: 12, loop: true },
+    },
   });
 
   /* ================= MAP ================= */
@@ -152,7 +206,7 @@ export function startGame(mapData?: GameMapData) {
   function drawTiles(
     grid: number[][],
     decoGrid: number[][] | undefined,
-    tileSize: number
+    tileSize: number,
   ) {
     const scaleFactor = tileSize / TILE_SPRITE_SIZE;
 
@@ -206,6 +260,7 @@ export function startGame(mapData?: GameMapData) {
       return;
     }
 
+    let isGameOver = false;
     const tileSize = resolvedMap.tileSize || TILE;
     const spawnPos = findSpawn(resolvedMap.grid, tileSize);
     drawTiles(resolvedMap.grid, resolvedMap.decoGrid, tileSize);
@@ -218,14 +273,6 @@ export function startGame(mapData?: GameMapData) {
       { hp: number; damage: number; speed: number }
     > = {
       1: { hp: 2, damage: 5, speed: 35 },
-      2: { hp: 3, damage: 8, speed: 40 },
-      3: { hp: 4, damage: 10, speed: 45 },
-      4: { hp: 5, damage: 12, speed: 50 },
-      5: { hp: 6, damage: 15, speed: 55 },
-      6: { hp: 8, damage: 18, speed: 60 },
-      7: { hp: 10, damage: 22, speed: 65 },
-      8: { hp: 15, damage: 28, speed: 70 },
-      9: { hp: 20, damage: 35, speed: 75 },
     };
 
     const currentDifficulty = resolvedMap.difficulty ?? 1;
@@ -241,6 +288,19 @@ export function startGame(mapData?: GameMapData) {
       health: diffStats.hp,
       damage: diffStats.damage,
     };
+
+    const YOD_CONFIG = {
+      speed: Math.max(30, Math.floor(diffStats.speed * 1.3)),
+      chaseRange: 160,
+      attackRange: 45,
+      attackCooldown: 1.8,
+      patrolRange: 110,
+      health: Math.max(2, Math.ceil(diffStats.hp * 1.3)),
+      damage: Math.max(6, Math.ceil(diffStats.damage * 1.3)),
+    };
+
+    let difficultyScale = 1;
+    const STAT_SCALE_POWER = 1.5;
 
     type GoblinState = "idle" | "patrol" | "chase" | "attack";
 
@@ -271,10 +331,22 @@ export function startGame(mapData?: GameMapData) {
       spawnY: number,
       customHp?: number,
       customDamage?: number,
-      customSpeed?: number
+      customSpeed?: number,
     ) {
-      const hp = customHp ?? GOBLIN_CONFIG.health;
-      const damage = customDamage ?? 20;
+      const variance = 0.85 + Math.random() * 0.3;
+      const baseHealth =
+        customHp !== undefined
+          ? Math.max(1, Math.round(customHp / Math.max(0.1, difficultyScale)))
+          : GOBLIN_CONFIG.health;
+      const baseDamage =
+        customDamage !== undefined
+          ? Math.max(
+              1,
+              Math.round(customDamage / Math.max(0.1, difficultyScale)),
+            )
+          : GOBLIN_CONFIG.damage;
+      const hp = Math.max(1, Math.round(baseHealth * variance));
+      const damage = Math.max(1, Math.round(baseDamage * variance));
       const speed = customSpeed ?? GOBLIN_CONFIG.speed;
 
       const goblin = add([
@@ -288,6 +360,8 @@ export function startGame(mapData?: GameMapData) {
           facing: 1,
           health: hp,
           maxHealth: hp,
+          baseHealth: Math.max(1, Math.round(baseHealth * variance)),
+          baseDamage: Math.max(1, Math.round(baseDamage * variance)),
           damage: damage,
           speed: speed,
           attackTimer: 0,
@@ -317,7 +391,7 @@ export function startGame(mapData?: GameMapData) {
         rect(HP_BAR_W, HP_BAR_H),
         pos(
           goblin.pos.x - HP_BAR_W / 2,
-          goblin.pos.y + HP_OFFSET_Y - HP_BAR_H / 2
+          goblin.pos.y + HP_OFFSET_Y - HP_BAR_H / 2,
         ),
         color(220, 60, 60),
         z(101),
@@ -353,12 +427,130 @@ export function startGame(mapData?: GameMapData) {
         hpBarFill.destroy();
       });
 
+      applyDifficultyScale(goblin);
       return goblin;
+    }
+
+    function spawnYod(
+      spawnX: number,
+      spawnY: number,
+      customHp?: number,
+      customDamage?: number,
+      customSpeed?: number,
+    ) {
+      const variance = 0.85 + Math.random() * 0.3;
+      const baseHealth =
+        customHp !== undefined
+          ? Math.max(1, Math.round(customHp / Math.max(0.1, difficultyScale)))
+          : YOD_CONFIG.health;
+      const baseDamage =
+        customDamage !== undefined
+          ? Math.max(
+              1,
+              Math.round(customDamage / Math.max(0.1, difficultyScale)),
+            )
+          : YOD_CONFIG.damage;
+      const hp = Math.max(1, Math.round(baseHealth * variance));
+      const damage = Math.max(1, Math.round(baseDamage * variance));
+      const speed = customSpeed ?? YOD_CONFIG.speed;
+
+      const yod = add([
+        sprite("yod", { anim: "idle" }),
+        pos(spawnX * tileSize + tileSize / 2, spawnY * tileSize + tileSize / 2),
+        area({ shape: new Rect(vec2(0), 40, 40) }),
+        anchor("center"),
+        scale(0.32),
+        {
+          state: "idle" as GoblinState,
+          facing: 1,
+          health: hp,
+          maxHealth: hp,
+          baseHealth: Math.max(1, Math.round(baseHealth * variance)),
+          baseDamage: Math.max(1, Math.round(baseDamage * variance)),
+          damage: damage,
+          speed: speed,
+          attackTimer: 0,
+          patrolTarget: null as { x: number; y: number } | null,
+          patrolOrigin: { x: spawnX, y: spawnY },
+          stateTimer: 0,
+        },
+        "yod",
+        "enemy",
+      ]);
+
+      const HP_BAR_W = 36;
+      const HP_BAR_H = 4;
+      const HP_OFFSET_Y = -26;
+
+      const hpBarBg = add([
+        rect(HP_BAR_W, HP_BAR_H),
+        pos(yod.pos.x, yod.pos.y + HP_OFFSET_Y),
+        anchor("center"),
+        color(40, 40, 40),
+        outline(1, rgb(20, 20, 20)),
+        z(100),
+      ]);
+
+      const hpBarFill = add([
+        rect(HP_BAR_W, HP_BAR_H),
+        pos(yod.pos.x - HP_BAR_W / 2, yod.pos.y + HP_OFFSET_Y - HP_BAR_H / 2),
+        color(220, 60, 60),
+        z(101),
+      ]);
+
+      yod.onUpdate(() => {
+        if (!yod.exists()) {
+          hpBarBg.destroy();
+          hpBarFill.destroy();
+          return;
+        }
+        hpBarBg.pos.x = yod.pos.x;
+        hpBarBg.pos.y = yod.pos.y + HP_OFFSET_Y;
+        hpBarFill.pos.x = yod.pos.x - HP_BAR_W / 2;
+        hpBarFill.pos.y = yod.pos.y + HP_OFFSET_Y - HP_BAR_H / 2;
+
+        const ratio = yod.health / yod.maxHealth;
+        hpBarFill.width = HP_BAR_W * ratio;
+        if (ratio > 0.6) {
+          hpBarFill.color = rgb(80, 200, 80);
+        } else if (ratio > 0.3) {
+          hpBarFill.color = rgb(220, 180, 60);
+        } else {
+          hpBarFill.color = rgb(220, 60, 60);
+        }
+      });
+
+      yod.onDestroy(() => {
+        hpBarBg.destroy();
+        hpBarFill.destroy();
+      });
+
+      applyDifficultyScale(yod);
+      return yod;
+    }
+
+    function applyDifficultyScale(enemy: {
+      baseHealth?: number;
+      baseDamage?: number;
+      health?: number;
+      maxHealth?: number;
+      damage?: number;
+    }) {
+      const baseHealth = enemy.baseHealth ?? enemy.maxHealth ?? 1;
+      const baseDamage = enemy.baseDamage ?? enemy.damage ?? 1;
+      const statScale = Math.pow(difficultyScale, STAT_SCALE_POWER);
+      const nextMax = Math.max(1, Math.ceil(baseHealth * statScale));
+      const nextDamage = Math.max(1, Math.ceil(baseDamage * statScale));
+      const currentRatio =
+        (enemy.health ?? nextMax) / (enemy.maxHealth ?? nextMax);
+      enemy.maxHealth = nextMax;
+      enemy.health = Math.max(1, Math.ceil(currentRatio * nextMax));
+      enemy.damage = nextDamage;
     }
 
     function updateGoblin(
       goblin: ReturnType<typeof spawnGoblin>,
-      playerPos: Vec2
+      playerPos: Vec2,
     ) {
       const dist = goblin.pos.dist(playerPos);
       const dt_val = dt();
@@ -392,8 +584,8 @@ export function startGame(mapData?: GameMapData) {
             goblin.pos.dist(
               vec2(
                 goblin.patrolTarget.x * tileSize + tileSize / 2,
-                goblin.patrolTarget.y * tileSize + tileSize / 2
-              )
+                goblin.patrolTarget.y * tileSize + tileSize / 2,
+              ),
             ) < 10
           ) {
             // Pick new patrol target
@@ -419,11 +611,11 @@ export function startGame(mapData?: GameMapData) {
 
           const patrolPos = vec2(
             goblin.patrolTarget.x * tileSize + tileSize / 2,
-            goblin.patrolTarget.y * tileSize + tileSize / 2
+            goblin.patrolTarget.y * tileSize + tileSize / 2,
           );
           const patrolDir = patrolPos.sub(goblin.pos).unit();
           const nextPatrolPos = goblin.pos.add(
-            patrolDir.scale(GOBLIN_CONFIG.speed * 0.5 * dt_val)
+            patrolDir.scale(GOBLIN_CONFIG.speed * 0.5 * dt_val),
           );
 
           // Check if next position is walkable before moving
@@ -456,7 +648,7 @@ export function startGame(mapData?: GameMapData) {
         case "chase": {
           const chaseDir = playerPos.sub(goblin.pos).unit();
           const nextPos = goblin.pos.add(
-            chaseDir.scale(GOBLIN_CONFIG.speed * dt_val)
+            chaseDir.scale(GOBLIN_CONFIG.speed * dt_val),
           );
 
           // Check if next position is walkable
@@ -504,14 +696,184 @@ export function startGame(mapData?: GameMapData) {
                 anchor("center"),
                 lifespan(0.12),
                 "goblin-attack",
-                { damage: goblin.damage ?? GOBLIN_CONFIG.damage },
+                {
+                  damage: goblin.damage ?? GOBLIN_CONFIG.damage,
+                  source: "goblin",
+                  hitSomething: false,
+                },
               ]);
+              
+              // Check if attack hit after a short delay
+              wait(0.06, () => {
+                if (!hitbox.exists()) return;
+                if (!hitbox.hitSomething) {
+                  soundManager.play('hit-air');
+                }
+              });
             });
           }
 
           // Return to chase after attack animation
           if (goblin.attackTimer < GOBLIN_CONFIG.attackCooldown - 0.5) {
             goblin.state = "chase";
+          }
+          break;
+        }
+      }
+    }
+
+    function updateYod(yod: ReturnType<typeof spawnYod>, playerPos: Vec2) {
+      const dist = yod.pos.dist(playerPos);
+      const dt_val = dt();
+      yod.attackTimer = Math.max(0, yod.attackTimer - dt_val);
+      yod.stateTimer += dt_val;
+
+      if (dist <= YOD_CONFIG.attackRange && yod.attackTimer <= 0) {
+        yod.state = "attack";
+      } else if (dist <= YOD_CONFIG.chaseRange) {
+        if (yod.state !== "attack") yod.state = "chase";
+      } else {
+        if (yod.state === "chase") yod.state = "patrol";
+        if (yod.state === "idle" && yod.stateTimer > 2) {
+          yod.state = "patrol";
+          yod.stateTimer = 0;
+        }
+      }
+
+      switch (yod.state) {
+        case "idle":
+          if (yod.curAnim() !== "idle") {
+            yod.play("idle");
+          }
+          break;
+
+        case "patrol": {
+          if (
+            !yod.patrolTarget ||
+            yod.pos.dist(
+              vec2(
+                yod.patrolTarget.x * tileSize + tileSize / 2,
+                yod.patrolTarget.y * tileSize + tileSize / 2,
+              ),
+            ) < 10
+          ) {
+            const ox = yod.patrolOrigin.x;
+            const oy = yod.patrolOrigin.y;
+            const range = Math.floor(YOD_CONFIG.patrolRange / tileSize);
+            const nx = ox + Math.floor(Math.random() * range * 2) - range;
+            const ny = oy + Math.floor(Math.random() * range * 2) - range;
+            if (
+              nx >= 0 &&
+              ny >= 0 &&
+              ny < resolvedMap.grid.length &&
+              nx < (resolvedMap.grid[ny]?.length ?? 0) &&
+              isWalkableTile(resolvedMap.grid[ny]?.[nx] ?? 0)
+            ) {
+              yod.patrolTarget = { x: nx, y: ny };
+            } else {
+              yod.state = "idle";
+              yod.stateTimer = 0;
+              break;
+            }
+          }
+
+          const patrolPos = vec2(
+            yod.patrolTarget.x * tileSize + tileSize / 2,
+            yod.patrolTarget.y * tileSize + tileSize / 2,
+          );
+          const patrolDir = patrolPos.sub(yod.pos).unit();
+          const nextPatrolPos = yod.pos.add(
+            patrolDir.scale(YOD_CONFIG.speed * 0.5 * dt_val),
+          );
+
+          const patrolTileX = Math.floor(nextPatrolPos.x / tileSize);
+          const patrolTileY = Math.floor(nextPatrolPos.y / tileSize);
+          if (
+            patrolTileY >= 0 &&
+            patrolTileY < resolvedMap.grid.length &&
+            patrolTileX >= 0 &&
+            patrolTileX < (resolvedMap.grid[patrolTileY]?.length ?? 0) &&
+            isWalkableTile(resolvedMap.grid[patrolTileY]?.[patrolTileX] ?? 0)
+          ) {
+            yod.pos = nextPatrolPos;
+          } else {
+            yod.patrolTarget = null;
+            yod.state = "idle";
+            yod.stateTimer = 0;
+          }
+
+          yod.facing = patrolDir.x >= 0 ? 1 : -1;
+          yod.flipX = yod.facing === -1;
+
+          if (yod.curAnim() !== "run") {
+            yod.play("run");
+          }
+          break;
+        }
+
+        case "chase": {
+          const chaseDir = playerPos.sub(yod.pos).unit();
+          const nextPos = yod.pos.add(
+            chaseDir.scale(YOD_CONFIG.speed * dt_val),
+          );
+
+          const tileX = Math.floor(nextPos.x / tileSize);
+          const tileY = Math.floor(nextPos.y / tileSize);
+          if (
+            tileY >= 0 &&
+            tileY < resolvedMap.grid.length &&
+            tileX >= 0 &&
+            tileX < (resolvedMap.grid[tileY]?.length ?? 0) &&
+            isWalkableTile(resolvedMap.grid[tileY]?.[tileX] ?? 0)
+          ) {
+            yod.pos = nextPos;
+          }
+
+          yod.facing = chaseDir.x >= 0 ? 1 : -1;
+          yod.flipX = yod.facing === -1;
+
+          if (yod.curAnim() !== "run") {
+            yod.play("run");
+          }
+          break;
+        }
+
+        case "attack": {
+          if (yod.attackTimer <= 0) {
+            const dir = playerPos.sub(yod.pos);
+            yod.facing = dir.x >= 0 ? 1 : -1;
+            yod.flipX = yod.facing === -1;
+
+            yod.play("attack");
+            yod.attackTimer = YOD_CONFIG.attackCooldown;
+
+            wait(0.2, () => {
+              if (!yod.exists()) return;
+              const hitbox = add([
+                pos(yod.pos.x + yod.facing * 12, yod.pos.y),
+                area({ shape: new Rect(vec2(0), 30, 24) }),
+                anchor("center"),
+                lifespan(0.12),
+                "goblin-attack",
+                {
+                  damage: yod.damage ?? YOD_CONFIG.damage,
+                  source: "yod",
+                  hitSomething: false,
+                },
+              ]);
+              
+              // Check if attack hit after a short delay
+              wait(0.06, () => {
+                if (!hitbox.exists()) return;
+                if (!hitbox.hitSomething) {
+                  soundManager.play('hit-air');
+                }
+              });
+            });
+          }
+
+          if (yod.attackTimer < YOD_CONFIG.attackCooldown - 0.5) {
+            yod.state = "chase";
           }
           break;
         }
@@ -526,7 +888,7 @@ export function startGame(mapData?: GameMapData) {
       resolvedMap.chunkCount ??
       Math.max(
         1,
-        Math.ceil((mapWidth * mapHeight) / (CHUNK_SIZE * CHUNK_SIZE))
+        Math.ceil((mapWidth * mapHeight) / (CHUNK_SIZE * CHUNK_SIZE)),
       );
 
     // Số quái ban đầu dựa trên difficulty (giảm để game dễ hơn lúc đầu)
@@ -534,9 +896,11 @@ export function startGame(mapData?: GameMapData) {
     const enemiesPerChunk = 0.3 + (baseDifficulty - 1) * 0.15; // 0.3 -> 1.5
     const initialGoblinCount = Math.max(
       1,
-      Math.floor(chunkCount * enemiesPerChunk)
+      Math.floor(chunkCount * enemiesPerChunk),
     );
-    const goblinSpawns = findGoblinSpawns(resolvedMap.grid, initialGoblinCount);
+    const goblinCount = Math.max(1, initialGoblinCount);
+    const yodCount = Math.max(0, Math.floor(goblinCount / 2));
+    const goblinSpawns = findGoblinSpawns(resolvedMap.grid, goblinCount);
     const goblins: ReturnType<typeof spawnGoblin>[] = goblinSpawns.map(
       (spawn) =>
         spawnGoblin(
@@ -544,8 +908,18 @@ export function startGame(mapData?: GameMapData) {
           spawn.y,
           GOBLIN_CONFIG.health,
           GOBLIN_CONFIG.damage,
-          GOBLIN_CONFIG.speed
-        )
+          GOBLIN_CONFIG.speed,
+        ),
+    );
+    const yodSpawns = findGoblinSpawns(resolvedMap.grid, yodCount);
+    const yods: ReturnType<typeof spawnYod>[] = yodSpawns.map((spawn) =>
+      spawnYod(
+        spawn.x,
+        spawn.y,
+        YOD_CONFIG.health,
+        YOD_CONFIG.damage,
+        YOD_CONFIG.speed,
+      ),
     );
 
     // ===== ENEMY MAINTAINER =====
@@ -553,6 +927,7 @@ export function startGame(mapData?: GameMapData) {
 
     // Hàm spawn goblin từ EnemyMaintainer
     function spawnGoblinFromMaintainer(config: EnemyConfig) {
+      const spawnYodNow = Math.random() < 1 / 3;
       // Tìm vị trí spawn xa player
       const candidates: { x: number; y: number }[] = [];
       for (let y = 0; y < mapHeight; y++) {
@@ -561,7 +936,7 @@ export function startGame(mapData?: GameMapData) {
             const tileX = x * tileSize + tileSize / 2;
             const tileY = y * tileSize + tileSize / 2;
             const dist = Math.sqrt(
-              (player.pos.x - tileX) ** 2 + (player.pos.y - tileY) ** 2
+              (player.pos.x - tileX) ** 2 + (player.pos.y - tileY) ** 2,
             );
             // Spawn xa player ít nhất 4 tiles
             if (dist > tileSize * 4) {
@@ -574,17 +949,31 @@ export function startGame(mapData?: GameMapData) {
       if (candidates.length === 0) return;
 
       const spawn = candidates[Math.floor(Math.random() * candidates.length)];
-      const newGoblin = spawnGoblin(
-        spawn.x,
-        spawn.y,
-        config.baseHp,
-        config.baseDamage,
-        config.baseSpeed
-      );
-      goblins.push(newGoblin);
-      console.log(
-        `[Maintainer] Spawned goblin at (${spawn.x}, ${spawn.y}) HP:${config.baseHp} DMG:${config.baseDamage}`
-      );
+      if (spawnYodNow) {
+        const newYod = spawnYod(
+          spawn.x,
+          spawn.y,
+          Math.max(config.baseHp, YOD_CONFIG.health),
+          Math.max(config.baseDamage, YOD_CONFIG.damage),
+          Math.max(config.baseSpeed * 0.9, YOD_CONFIG.speed),
+        );
+        yods.push(newYod);
+        console.log(
+          `[Maintainer] Spawned yod at (${spawn.x}, ${spawn.y}) HP:${newYod.health} DMG:${newYod.damage} scale:${difficultyScale.toFixed(2)}`,
+        );
+      } else {
+        const newGoblin = spawnGoblin(
+          spawn.x,
+          spawn.y,
+          config.baseHp,
+          config.baseDamage,
+          config.baseSpeed,
+        );
+        goblins.push(newGoblin);
+        console.log(
+          `[Maintainer] Spawned goblin at (${spawn.x}, ${spawn.y}) HP:${newGoblin.health} DMG:${newGoblin.damage} scale:${difficultyScale.toFixed(2)}`,
+        );
+      }
     }
 
     // Khởi tạo maintainer
@@ -594,24 +983,37 @@ export function startGame(mapData?: GameMapData) {
       chunkCount,
       onSpawnEnemy: spawnGoblinFromMaintainer,
       onDifficultyUpdate: (info: DifficultyInfo) => {
-        // Emit event để UI có thể hiển thị
+        const aliveGoblins = goblins.filter((goblin) => goblin.exists());
+        const aliveYods = yods.filter((yod) => yod.exists());
         window.dispatchEvent(
-          new CustomEvent("game:difficulty-update", { detail: info })
+          new CustomEvent("game:difficulty-update", {
+            detail: {
+              ...info,
+              currentEnemyCount: aliveGoblins.length + aliveYods.length,
+            },
+          }),
         );
+        if (info.baseDifficulty > 0) {
+          difficultyScale = info.effectiveDifficulty / info.baseDifficulty;
+          goblins.forEach((goblin) => applyDifficultyScale(goblin));
+          yods.forEach((yod) => applyDifficultyScale(yod));
+        }
       },
     });
 
     // Cập nhậ t số quái ban đầu
-    maintainer.updateEnemyCount(goblins.length);
+    maintainer.updateEnemyCount(goblins.length + yods.length);
 
     // Start checking mỗi 10 giây
     maintainer.start(10000);
 
     // Update all goblins
     onUpdate(() => {
+      if (isGameOver) return;
       // Đếm số quái còn sống và cập nhật maintainer
       const aliveGoblins = goblins.filter((g) => g.exists());
-      maintainer.updateEnemyCount(aliveGoblins.length);
+      const aliveYods = yods.filter((y) => y.exists());
+      maintainer.updateEnemyCount(aliveGoblins.length + aliveYods.length);
 
       goblins.forEach((goblin) => {
         if (goblin.exists()) {
@@ -628,10 +1030,26 @@ export function startGame(mapData?: GameMapData) {
           updateGoblin(goblin, player.pos);
         }
       });
+      yods.forEach((yod) => {
+        if (yod.exists()) {
+          const yTileId = getTileIdAt(yod.pos);
+          if (
+            yTileId === null ||
+            !isTileDefined(yTileId) ||
+            !isWalkableTile(yTileId)
+          ) {
+            yod.destroy();
+            return;
+          }
+          updateYod(yod, player.pos);
+        }
+      });
     });
 
     // Handle player attack hitting goblins
     onCollide("attack", "goblin", (attack, goblin) => {
+      attack.hitSomething = true;
+      soundManager.play('hit-enemy');
       goblin.health -= 1;
       if (goblin.health <= 0) {
         goblin.destroy();
@@ -639,6 +1057,17 @@ export function startGame(mapData?: GameMapData) {
         // Knockback
         const knockDir = goblin.pos.sub(player.pos).unit();
         goblin.pos = goblin.pos.add(knockDir.scale(20));
+      }
+    });
+    onCollide("attack", "yod", (attack, yod) => {
+      attack.hitSomething = true;
+      soundManager.play('hit-enemy');
+      yod.health -= 1;
+      if (yod.health <= 0) {
+        yod.destroy();
+      } else {
+        const knockDir = yod.pos.sub(player.pos).unit();
+        yod.pos = yod.pos.add(knockDir.scale(20));
       }
     });
 
@@ -667,6 +1096,11 @@ export function startGame(mapData?: GameMapData) {
       "player",
     ]);
 
+    // Notify that player has spawned and is ready
+    wait(0.1, () => {
+      window.dispatchEvent(new CustomEvent("game:player-spawned"));
+    });
+
     /* ================= HEALTH BAR UI ================= */
 
     const HP_BAR_WIDTH = 180;
@@ -679,7 +1113,7 @@ export function startGame(mapData?: GameMapData) {
     const hpBarBg = add([
       rect(
         HP_BAR_WIDTH + HP_BAR_PADDING * 2,
-        HP_BAR_HEIGHT + HP_BAR_PADDING * 2
+        HP_BAR_HEIGHT + HP_BAR_PADDING * 2,
       ),
       pos(HP_BAR_X, HP_BAR_Y),
       color(30, 30, 40),
@@ -702,7 +1136,7 @@ export function startGame(mapData?: GameMapData) {
       text(`${playerHP}/${PLAYER_MAX_HP}`, { size: 14 }),
       pos(
         HP_BAR_X + HP_BAR_WIDTH / 2 + HP_BAR_PADDING,
-        HP_BAR_Y + HP_BAR_PADDING + HP_BAR_HEIGHT / 2
+        HP_BAR_Y + HP_BAR_PADDING + HP_BAR_HEIGHT / 2,
       ),
       anchor("center"),
       color(255, 255, 255),
@@ -715,7 +1149,7 @@ export function startGame(mapData?: GameMapData) {
       text("❤", { size: 20 }),
       pos(
         HP_BAR_X + HP_BAR_WIDTH + 30,
-        HP_BAR_Y + HP_BAR_PADDING + HP_BAR_HEIGHT / 2
+        HP_BAR_Y + HP_BAR_PADDING + HP_BAR_HEIGHT / 2,
       ),
       anchor("center"),
       color(255, 100, 100),
@@ -743,17 +1177,22 @@ export function startGame(mapData?: GameMapData) {
     // Handle goblin attack hitting player
     // Damage is now dynamic based on difficulty (from attack hitbox)
     onCollide("goblin-attack", "player", (attack, _player) => {
+      if (isGameOver) return;
       if (playerInvincible) return;
+
+      attack.hitSomething = true;
+      soundManager.play('hit-me');
 
       // Get damage from the attack hitbox (set when goblin attacks)
       const goblinDamage = attack.damage ?? GOBLIN_CONFIG.damage;
+
       playerHP -= goblinDamage;
       if (playerHP < 0) playerHP = 0;
       updateHPBar();
 
       if (playerHP <= 0) {
         // Player dies
-        go("game", { mapData: resolvedMap });
+        triggerGameOver();
         return;
       }
 
@@ -775,40 +1214,117 @@ export function startGame(mapData?: GameMapData) {
 
     const playTarget = loadPlayTarget();
     const playState = loadPlayState();
+    const chests = loadPlayChests();
+    
+    // Check if key is hidden in a chest
+    const keyHiddenInChest = chests.some(c => c.hasKey);
+
     const worldMatch =
       !playTarget?.worldId ||
       !resolvedMap.worldId ||
       playTarget.worldId === resolvedMap.worldId;
-    if (
-      playTarget &&
-      worldMatch &&
-      !playTarget.found &&
-      Number.isFinite(playTarget.x) &&
-      Number.isFinite(playTarget.y) &&
-      isWalkableTile(resolvedMap.grid[playTarget.y]?.[playTarget.x] ?? 0)
-    ) {
-      const keyPos = vec2(
-        playTarget.x * tileSize + tileSize / 2,
-        playTarget.y * tileSize + tileSize / 2
+      
+    // Spawn Chests
+    if (worldMatch && chests.length > 0 && !playTarget?.found) {
+      chests.forEach(chest => {
+        // Validation: check terrain
+        const tileId = getTileIdAt(vec2(chest.x * tileSize, chest.y * tileSize));
+        if (
+          tileId !== null &&
+          isTileDefined(tileId) &&
+          isWalkableTile(tileId)
+        ) {
+           const chestObj = add([
+             sprite("chest"),
+             pos(chest.x * tileSize + tileSize / 2, chest.y * tileSize + tileSize / 2),
+             anchor("center"),
+             area({ shape: new Rect(vec2(0), 28, 24) }),
+             body({ isStatic: true }),
+             scale(0.8),
+             "chest",
+             "obstacle",
+             {
+               id: chest.id,
+               hasKey: chest.hasKey,
+               health: 2,
+             }
+           ]);
+           
+           // HP Bar for chest (optional, or just hit effect)
+        }
+      });
+      
+      // Chest collision logic
+      onCollide("attack", "chest", (attack, chest) => {
+        attack.hitSomething = true;
+        soundManager.play('hit-chest');
+        chest.health -= 1;
+        // Hit effect
+        const textPos = chest.pos.sub(0, 20);
+        add([
+          text("Hit!", { size: 10 }),
+          pos(textPos),
+          anchor("center"),
+          color(255, 255, 255),
+          lifespan(0.3),
+          move(vec2(0, -100), 50),
+        ]);
+        
+        if (chest.health <= 0) {
+          destroy(chest);
+          
+          // If chest had key, spawn key now
+          if (chest.hasKey && playTarget) {
+             spawnKey(playTarget, playState?.playId);
+          }
+        } else {
+           // Flash effect or shake
+           chest.color = rgb(255, 100, 100);
+           wait(0.1, () => {
+             if (chest.exists()) chest.color = rgb(255, 255, 255);
+           });
+        }
+      });
+    }
+
+    // Helper to spawn key
+    function spawnKey(target: {x: number, y: number}, pId?: string) {
+       const keyPos = vec2(
+        target.x * tileSize + tileSize / 2,
+        target.y * tileSize + tileSize / 2,
       );
       const keyObj = add([
-        rect(tileSize * 0.6, tileSize * 0.6),
+        sprite("key", { anim: "spin" }),
         pos(keyPos),
-        area(),
+        area({ shape: new Rect(vec2(0), tileSize * 0.8, tileSize * 0.8) }),
         anchor("center"),
-        color(250, 210, 72),
+        scale(1.5),
         "key",
       ]);
+      
       let keyFound = false;
       player.onCollide("key", () => {
         if (keyFound) return;
         keyFound = true;
         keyObj.destroy();
-        markKeyFound(playTarget, playState?.playId);
+        markKeyFound(target, pId);
       });
     }
 
+    if (
+      playTarget &&
+      worldMatch &&
+      !playTarget.found &&
+      !keyHiddenInChest && // Only spawn initially if NOT in a chest
+      Number.isFinite(playTarget.x) &&
+      Number.isFinite(playTarget.y) &&
+      isWalkableTile(resolvedMap.grid[playTarget.y]?.[playTarget.x] ?? 0)
+    ) {
+       spawnKey(playTarget, playState?.playId);
+    }
+
     onUpdate(() => {
+      if (isGameOver) return;
       camPos(player.pos);
       camScale(2); // Zoom camera 2x để nhìn rõ hơn
     });
@@ -818,26 +1334,42 @@ export function startGame(mapData?: GameMapData) {
     let moveDir = vec2(0, 0);
     let isFalling = false;
 
+    function triggerGameOver() {
+      if (isGameOver) return;
+      isGameOver = true;
+      console.log("Triggering Game Over");
+      window.dispatchEvent(new CustomEvent("game:player-dead"));
+      stopEnemyMaintainer();
+    }
+
     function handleFallDeath() {
       if (isFalling) return;
       isFalling = true;
-      go("game", { mapData: resolvedMap });
+      triggerGameOver();
     }
 
     onKeyDown("a", () => {
+      if (isGameOver) return;
       if (player.attacking) return;
       moveDir.x = -1;
       player.facing = -1;
     });
 
     onKeyDown("d", () => {
+      if (isGameOver) return;
       if (player.attacking) return;
       moveDir.x = 1;
       player.facing = 1;
     });
 
-    onKeyDown("w", () => (moveDir.y = -1));
-    onKeyDown("s", () => (moveDir.y = 1));
+    onKeyDown("w", () => {
+      if (isGameOver) return;
+      moveDir.y = -1;
+    });
+    onKeyDown("s", () => {
+      if (isGameOver) return;
+      moveDir.y = 1;
+    });
 
     /* ================= MOVE ================= */
 
@@ -885,16 +1417,29 @@ export function startGame(mapData?: GameMapData) {
 
     function spawnAttackHitbox() {
       const attackFacing = player.attackFacing ?? player.facing;
-      add([
+      const hitbox = add([
         pos(player.pos.x + attackFacing * 12, player.pos.y),
         area({ shape: new Rect(vec2(1), 28, 26) }),
         anchor("center"),
         lifespan(0.1),
         "attack",
+        {
+          hitSomething: false,
+        },
       ]);
+      
+      // Check if attack will hit anything after a short delay
+      wait(0.05, () => {
+        if (!hitbox.exists()) return;
+        if (!hitbox.hitSomething) {
+          // Attack missed - play air sound
+          soundManager.play('hit-air');
+        }
+      });
     }
 
     function attack() {
+      if (isGameOver) return;
       if (player.attacking) return;
 
       player.attacking = true;
@@ -915,6 +1460,7 @@ export function startGame(mapData?: GameMapData) {
     /* ================= UPDATE LOOP ================= */
 
     player.onUpdate(() => {
+      if (isGameOver) return;
       /* ---- CHECK DEATH ON ABYSS/VOID ---- */
       // If player is standing on dangerous tile (abyss, void, out of bounds) -> die
       if (isPositionDangerous(player.pos)) {
@@ -991,14 +1537,31 @@ function loadPlayTarget(): {
     console.error(error);
     return null;
   }
+
+}
+
+function loadPlayChests(): {
+  x: number;
+  y: number;
+  hasKey: boolean;
+  id: string;
+}[] {
+  const raw = localStorage.getItem(PLAY_CHESTS_KEY);
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    console.error(error);
+    return [];
+  }
 }
 
 function markKeyFound(target: { x: number; y: number }, playId?: string) {
   localStorage.setItem(
     PLAY_TARGET_KEY,
-    JSON.stringify({ ...target, found: true })
+    JSON.stringify({ ...target, found: true }),
   );
   window.dispatchEvent(
-    new CustomEvent("game:key-found", { detail: { playId } })
+    new CustomEvent("game:key-found", { detail: { playId } }),
   );
 }

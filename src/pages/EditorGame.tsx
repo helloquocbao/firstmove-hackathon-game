@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import {
-  ConnectButton,
   useCurrentAccount,
   useSignAndExecuteTransaction,
 } from "@mysten/dapp-kit";
@@ -26,8 +25,12 @@ import {
   normalizeDecoId,
   PaintLayer,
 } from "../game/tiles";
-import { useWalrusImageUpload } from "../hooks";
+
+import { WalletHeader } from "../components";
 import "./EditorGame.css";
+import { useWalrusUpload } from "../hooks/useWalrusUpload";
+import { useRewardBalance } from "../hooks/useRewardBalance";
+import { getWalrusImageUrl } from "../lib/helper";
 
 /**
  * TILE CODE
@@ -49,6 +52,9 @@ export default function EditorGame() {
   const account = useCurrentAccount();
   const { mutateAsync: signAndExecute, isPending } =
     useSignAndExecuteTransaction();
+
+  const { uploadImage, isUploading } = useWalrusUpload();
+  const { refetch: refetchBalance } = useRewardBalance();
 
   const [userId] = useState(() => getOrCreateUserId());
   const [notice, setNotice] = useState<string>("");
@@ -81,37 +87,10 @@ export default function EditorGame() {
   const [hoveredChunkId, setHoveredChunkId] = useState("");
   const [isHoverIdLoading, setIsHoverIdLoading] = useState(false);
   const [isClaimHelpOpen, setIsClaimHelpOpen] = useState(false);
-  const [rewardBalance, setRewardBalance] = useState(0);
-
-  // Fetch reward balance
-  useEffect(() => {
-    async function fetchBalance() {
-      if (!account?.address || !REWARD_COIN_TYPE) {
-        setRewardBalance(0);
-        return;
-      }
-      try {
-        const coins = await suiClient.getCoins({
-          owner: account.address,
-          coinType: REWARD_COIN_TYPE,
-        });
-        const total = coins.data.reduce(
-          (sum, coin) => sum + BigInt(coin.balance),
-          BigInt(0),
-        );
-        // DECIMALS = 0 in reward_coin.move, so no division needed
-        setRewardBalance(Number(total));
-      } catch (err) {
-        console.error("Failed to fetch reward balance:", err);
-        setRewardBalance(0);
-      }
-    }
-    fetchBalance();
-  }, [account?.address]);
 
   // Compute current chunk price for UI display
   const claimChunkPrice =
-    (loadedChunks ?? 0) < 20 ? (loadedChunks ?? 0) * 5 : 95;
+    (loadedChunks ?? 0) < 20 ? (loadedChunks ?? 0) * 5 : 100;
 
   // World creation params
   const [worldName, setWorldName] = useState<string>("");
@@ -138,12 +117,6 @@ export default function EditorGame() {
   const gridWrapRef = useRef<HTMLDivElement | null>(null);
   const chunkGridRef = useRef<HTMLDivElement | null>(null);
 
-  // Walrus image upload
-  const {
-    uploadCanvas,
-    isUploading: isUploadingImage,
-    uploadError: walrusUploadError,
-  } = useWalrusImageUpload();
   const clickTileRef = useRef<{ x: number; y: number } | null>(null);
   const dragRef = useRef({
     active: false,
@@ -201,6 +174,37 @@ export default function EditorGame() {
     Boolean(
       owner && (owner === userId || (walletAddress && owner === walletAddress)),
     );
+
+  const myChunks = useMemo(() => {
+    return Object.entries(chunkOwners)
+      .filter(
+        ([key, owner]) =>
+          owner &&
+          (owner === userId || (walletAddress && owner === walletAddress)),
+      )
+      .map(([key]) => key);
+  }, [chunkOwners, userId, walletAddress]);
+
+  function flyToChunk(chunkKey: string) {
+    const [cx, cy] = chunkKey.split(",").map(Number);
+    const wrap = gridWrapRef.current;
+    if (!wrap) return;
+
+    const chunkSizePx = CHUNK_SIZE * TILE_SIZE;
+    const x = cx * chunkSizePx;
+    const y = cy * chunkSizePx;
+
+    const viewportWidth = wrap.clientWidth;
+    const viewportHeight = wrap.clientHeight;
+
+    wrap.scrollTo({
+      left: x - viewportWidth / 2 + chunkSizePx / 2,
+      top: y - viewportHeight / 2 + chunkSizePx / 2,
+      behavior: "smooth",
+    });
+
+    setHoveredChunkKey(chunkKey);
+  }
 
   useEffect(() => {
     chunkIdCacheRef.current = {};
@@ -383,13 +387,12 @@ export default function EditorGame() {
       setNotice("Uploading to Walrus...");
 
       // Upload canvas to Walrus
-      const fileName = `chunk_${activeChunkCoords.cx}_${activeChunkCoords.cy}_${Date.now()}.png`;
-      const result = await uploadCanvas(canvas, fileName);
+      const patchId = await uploadImage(canvas);
 
       console.log("=== Walrus Upload Result ===");
-      console.log("Blob ID:", result.blobId);
-      console.log("Image URL:", result.url);
-      console.log("Full result:", result);
+      console.log("Patch ID:", patchId);
+      console.log("Image URL:", getWalrusImageUrl(patchId));
+      console.log("Full result:", patchId);
 
       // Get the chunk object ID to update image URL on-chain
       const chunkObjectId = await fetchChunkObjectId(
@@ -399,7 +402,7 @@ export default function EditorGame() {
 
       if (!chunkObjectId) {
         setNotice(
-          `Image uploaded to Walrus but chunk not found on-chain. URL: ${result.url}`,
+          `Image uploaded to Walrus but chunk not found on-chain. URL: ${getWalrusImageUrl(patchId)}`,
         );
         return;
       }
@@ -411,11 +414,16 @@ export default function EditorGame() {
         (tx) => {
           tx.moveCall({
             target: `${PACKAGE_ID}::world::set_image_url`,
-            arguments: [tx.object(chunkObjectId), tx.pure.string(result.url)],
+            arguments: [
+              tx.object(chunkObjectId),
+              tx.pure.string(getWalrusImageUrl(patchId)),
+            ],
           });
         },
         () => {
-          setNotice(`Chunk image updated on-chain! URL: ${result.url}`);
+          setNotice(
+            `Chunk image updated on-chain! URL: ${getWalrusImageUrl(patchId)}`,
+          );
         },
       );
     } catch (error) {
@@ -630,11 +638,38 @@ export default function EditorGame() {
     }
   }
 
-  async function refreshWorldAndMap() {
-    await loadWorldListAndMap();
+  async function refreshWorldAndMap(options?: { flyToNewest?: boolean } | React.MouseEvent) {
+    // Handle both direct calls with options and event handler calls
+    const flyToNewest = options && 'flyToNewest' in options ? options.flyToNewest : false;
+    
+    if (worldIdValue) {
+      // Add delay to ensure blockchain data is updated
+      if (flyToNewest) {
+        setNotice("Waiting for blockchain to update...");
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        setNotice("Loading updated world data...");
+      }
+      
+      const result = await loadWorldMap(worldIdValue);
+      
+      // Fly to newest chunk if requested
+      if (flyToNewest && result.newestChunkKey) {
+        const owner = result.owners[result.newestChunkKey];
+        const isMyChunk = owner && (owner === userId || (walletAddress && owner === walletAddress));
+        
+        if (isMyChunk) {
+          console.log("Flying to newest chunk:", result.newestChunkKey);
+          setNotice(`Chunk claimed successfully! Flying to ${result.newestChunkKey}...`);
+          // Small delay to ensure UI is updated
+          setTimeout(() => flyToChunk(result.newestChunkKey!), 300);
+        }
+      }
+    } else {
+      await loadWorldListAndMap();
+    }
   }
 
-  async function loadWorldMap(targetWorldId: string) {
+  async function loadWorldMap(targetWorldId: string): Promise<{ owners: ChunkOwners; newestChunkKey?: string }> {
     setMapLoadError("");
     setIsMapLoading(true);
     setLoadedChunks(null);
@@ -648,7 +683,7 @@ export default function EditorGame() {
       if (fieldEntries.length === 0) {
         setNotice("World has no chunks yet.");
         setLoadedChunks(0);
-        return;
+        return { owners: {} };
       }
 
       const chunkEntries = await resolveChunkEntries(
@@ -660,7 +695,7 @@ export default function EditorGame() {
       if (chunkEntries.length === 0) {
         setNotice("No chunk entries found.");
         setLoadedChunks(0);
-        return;
+        return { owners: {} };
       }
 
       const chunkIds = chunkEntries.map((entry) => entry.chunkId);
@@ -681,6 +716,10 @@ export default function EditorGame() {
         .fill(0)
         .map(() => Array(width).fill(0));
       const newOwners: ChunkOwners = {};
+      
+      // Track newest chunk by version
+      let newestVersion = 0;
+      let newestChunkKey: string | undefined;
 
       chunkEntries.forEach((entry, index) => {
         const response = chunkObjects[index];
@@ -714,19 +753,30 @@ export default function EditorGame() {
 
         const owner = extractOwnerAddress(response.data?.owner);
         if (owner) {
-          newOwners[makeChunkKey(entry.cx, entry.cy)] = owner;
+          const chunkKey = makeChunkKey(entry.cx, entry.cy);
+          newOwners[chunkKey] = owner;
+          
+          // Track newest chunk by version
+          if (entry.version > newestVersion) {
+            newestVersion = entry.version;
+            newestChunkKey = chunkKey;
+          }
         }
       });
 
       console.log("Final decoGrid:", newDecoGrid);
+      console.log("Newest chunk:", newestChunkKey, "version:", newestVersion);
 
       setGrid(newGrid);
       setDecoGrid(newDecoGrid);
       setChunkOwners(newOwners);
       setLoadedChunks(chunkEntries.length);
       setNotice(`Loaded ${chunkEntries.length} chunks from chain.`);
+      
+      return { owners: newOwners, newestChunkKey };
     } catch (error) {
       setMapLoadError(error instanceof Error ? error.message : String(error));
+      return { owners: {} };
     } finally {
       setIsMapLoading(false);
     }
@@ -866,9 +916,9 @@ export default function EditorGame() {
 
     // Calculate chunk price:
     // - If chunks < 20: fee = chunks * 5 (chunk 0 = free, chunk 1 = 5, ...)
-    // - If chunks >= 20: fee = 95 (fixed)
+    // - From chunk 21 onwards (index >= 20): fee = 100 (fixed)
     const currentChunkCount = loadedChunks ?? 0;
-    const chunkPrice = currentChunkCount < 20 ? currentChunkCount * 5 : 95;
+    const chunkPrice = currentChunkCount < 20 ? currentChunkCount * 5 : 100;
 
     // Check if user has enough coins before proceeding
     const coins = await suiClient.getCoins({
@@ -928,7 +978,11 @@ export default function EditorGame() {
           ],
         });
       },
-      () => refreshWorldAndMap(),
+      () => {
+        refreshWorldAndMap({ flyToNewest: true });
+        // Delay to allow indexer to sync before refetching balance
+        setTimeout(() => void refetchBalance(), 1500);
+      },
     );
   }
 
@@ -982,8 +1036,10 @@ export default function EditorGame() {
           ],
         });
       },
-      () => {
-        setNotice("Chunk saved on-chain.");
+      async () => {
+        setNotice("Tiles saved! Now capturing and uploading image...");
+        // After tiles saved, capture and upload image
+        await captureAndUploadChunkImage();
       },
     );
   }
@@ -1014,34 +1070,6 @@ export default function EditorGame() {
     } catch (error) {
       console.error("Failed to load character:", error);
     }
-  }
-
-  async function createCharacterOnChain() {
-    if (!WORLD_REGISTRY_ID) {
-      setTxError("Missing world registry id.");
-      return;
-    }
-    if (!characterName.trim()) {
-      setTxError("Character name is required (1-32 chars).");
-      return;
-    }
-
-    await runTx(
-      "Create character",
-      (tx) => {
-        tx.moveCall({
-          target: `${PACKAGE_ID}::world::create_character`,
-          arguments: [
-            tx.object(WORLD_REGISTRY_ID),
-            tx.pure.string(characterName.trim()),
-          ],
-        });
-      },
-      () => {
-        setNotice("Character created!");
-        void loadCharacter();
-      },
-    );
   }
 
   async function loadRewardCoins() {
@@ -1242,10 +1270,10 @@ export default function EditorGame() {
       <div className="editor-shell">
         <header className="editor-nav">
           <Link to="/" className="brand">
-            <div className="brand__mark">CW</div>
+            <img src="https://ik.imagekit.io/huubao/chunk_coin.png" alt="logo" className="w-12 h-12" />
             <div>
               <div className="brand__name">Chunk World</div>
-              <div className="brand__tag">Map Editor</div>
+              <div className="brand__tag">Sky Adventures on Sui</div>
             </div>
           </Link>
 
@@ -1255,24 +1283,7 @@ export default function EditorGame() {
             <Link to="/marketplace">Marketplace</Link>
           </nav>
 
-          <div className="header-right">
-            {account && (
-              <div className="reward-balance">
-                <span className="reward-balance__icon">
-                  <img
-                    alt="icon"
-                    className="w-4 h-4"
-                    src="https://ik.imagekit.io/huubao/chunk_coin.png?updatedAt=1768641987539"
-                  />
-                </span>
-                <span className="reward-balance__value">
-                  {rewardBalance.toLocaleString()}
-                </span>
-                <span className="reward-balance__label">CHUNK</span>
-              </div>
-            )}
-            <ConnectButton />
-          </div>
+          <WalletHeader />
         </header>
 
         <div className="editor-layout">
@@ -1287,6 +1298,49 @@ export default function EditorGame() {
               </div>
 
               <div className="panel__rows text-nowrap overflow-hidden">
+                <div className="flex flex-col gap-1">
+                  <div className="flex justify-between items-center">
+                    <span>My chunks</span>
+                    <span className="panel__value text-white">
+                      {myChunks.length}
+                    </span>
+                  </div>
+                  {myChunks.length > 0 && (
+                    <div className="flex gap-2 flex-wrap mt-2 max-h-[160px] overflow-y-auto pr-1 custom-scrollbar">
+                      {myChunks.map((key) => (
+                        <button
+                          key={key}
+                          onClick={() => flyToChunk(key)}
+                          className={`
+                            relative group flex flex-col items-center justify-center cursor-pointer
+                            bg-[#131b26] border border-[#2a3b55] rounded-lg p-2 
+                            hover:border-[#59b7ff] hover:bg-[#1a2636] transition-all
+                            ${activeChunkKey === key ? "border-[#59b7ff] bg-[#1a2636] ring-1 ring-[#59b7ff]" : ""}
+                          `}
+                          title={`Fly to chunk ${key}`}
+                        >
+                          <div className="w-6 h-6 mb-1 text-[#59b7ff] opacity-80 group-hover:opacity-100 flex items-center justify-center">
+                            <svg
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                              <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+                              <line x1="12" y1="22.08" x2="12" y2="12" />
+                            </svg>
+                          </div>
+                          <span className="text-[10px] font-mono text-slate-400 group-hover:text-white">
+                            {key.replace(",", ", ")}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <div>
                   <span>Hover chunk</span>
                   <span>{hoveredChunkLabel}</span>
@@ -1314,7 +1368,7 @@ export default function EditorGame() {
               <div className="flex gap-2">
                 <button
                   className={`btn ${
-                    paintLayer === "base" ? "btn--primary" : "btn--outline"
+                    paintLayer === "base" ? "btn-active-chunk" : "btn--outline"
                   }`}
                   onClick={() => setPaintLayer("base")}
                 >
@@ -1322,7 +1376,7 @@ export default function EditorGame() {
                 </button>
                 <button
                   className={`btn ${
-                    paintLayer === "decor" ? "btn--primary" : "btn--outline"
+                    paintLayer === "decor" ? "btn-active-chunk" : "btn--outline"
                   }`}
                   onClick={() => setPaintLayer("decor")}
                 >
@@ -1390,7 +1444,7 @@ export default function EditorGame() {
               <div className="flex justify-between items-center">
                 <div>
                   <div className="panel__eyebrow">Stone canvas</div>
-                  <div className="panel__title">Chunk grid</div>
+                  <div className="panel__title">Select your chunk to edit</div>
                 </div>
                 <button
                   className="btn btn--dark"
@@ -1796,7 +1850,9 @@ export default function EditorGame() {
                   <div className="flex gap-2" style={{ marginBottom: "12px" }}>
                     <button
                       className={`btn ${
-                        paintLayer === "base" ? "btn--primary" : "btn--outline"
+                        paintLayer === "base"
+                          ? "btn-active-chunk"
+                          : "btn--outline"
                       }`}
                       onClick={() => setPaintLayer("base")}
                     >
@@ -1804,7 +1860,9 @@ export default function EditorGame() {
                     </button>
                     <button
                       className={`btn ${
-                        paintLayer === "decor" ? "btn--primary" : "btn--outline"
+                        paintLayer === "decor"
+                          ? "btn-active-chunk"
+                          : "btn--outline"
                       }`}
                       onClick={() => setPaintLayer("decor")}
                     >
@@ -1857,26 +1915,17 @@ export default function EditorGame() {
 
               <div className="editor-modal__actions">
                 <button
-                  className="btn btn--primary"
+                  className="btn btn-save-chunk"
                   onClick={saveActiveChunkOnChain}
                   disabled={isBusy || !isConnected || !canSaveActiveChunk}
                 >
-                  {busyAction === "Save chunk" ? "Saving..." : "Save chunk"}
-                </button>
-                <button
-                  className="btn btn--dark"
-                  onClick={captureAndUploadChunkImage}
-                  disabled={isUploadingImage || !isConnected}
-                >
-                  {isUploadingImage ? "Uploading..." : "Update Image"}
+                  {busyAction === "Save chunk" || isUploading ? "Saving..." : "Save Chunk"}
                 </button>
                 <button className="btn btn--outline" onClick={closeChunkModal}>
                   Cancel
                 </button>
               </div>
-              {walrusUploadError && (
-                <div className="panel__error">{walrusUploadError}</div>
-              )}
+              {/* {isUploading && <div className="panel__error">{isUploading}</div>} */}
             </div>
           </div>
         )}
@@ -2156,7 +2205,12 @@ async function resolveChunkEntries(
       const fieldFields = normalizeMoveFields(content.fields);
       const chunkId = extractObjectId(fieldFields.value);
       if (!chunkId) return null;
-      return { ...coords, chunkId };
+      
+      // Get version from object metadata
+      const version = fieldObject.data?.version;
+      const versionNumber = typeof version === 'string' ? parseInt(version, 10) : 0;
+      
+      return { ...coords, chunkId, version: versionNumber };
     }),
   );
 
@@ -2168,10 +2222,11 @@ async function resolveChunkEntries(
         cx: number;
         cy: number;
         chunkId: string;
+        version: number;
       }> => result.status === "fulfilled",
     )
     .map((result) => result.value)
-    .filter((entry): entry is { cx: number; cy: number; chunkId: string } =>
+    .filter((entry): entry is { cx: number; cy: number; chunkId: string; version: number } =>
       Boolean(entry),
     );
 }

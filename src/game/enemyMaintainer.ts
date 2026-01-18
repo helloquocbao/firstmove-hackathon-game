@@ -41,6 +41,7 @@ export class EnemyMaintainer {
   private targetEnemyCount: number = 0;
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private lastTxCount: bigint = BigInt(0);
+  private lastTxTimestampMs: number | null = null;
   private currentDifficulty: DifficultyInfo | null = null;
 
   // Cache để giảm số lần call RPC
@@ -60,7 +61,7 @@ export class EnemyMaintainer {
     const stats = this.getBaseStats();
     // Target = chunks × enemiesPerChunk (cơ bản, sẽ được điều chỉnh theo network)
     this.targetEnemyCount = Math.ceil(
-      this.config.chunkCount * stats.enemiesPerChunk
+      this.config.chunkCount * stats.enemiesPerChunk,
     );
   }
 
@@ -109,13 +110,11 @@ export class EnemyMaintainer {
     if (shouldFetchFromSui && !this.isFetching) {
       this.isFetching = true;
       try {
-        const [systemState, checkpoint] = await Promise.all([
-          this.client.getLatestSuiSystemState(),
-          this.client.getCheckpoint({ id: "latest" }),
-        ]);
+        const totalTransaction = await this.client.getTotalTransactionBlocks();
 
-        networkScore = this.calculateNetworkScore(systemState, checkpoint);
-        validatorHealth = this.calculateValidatorHealth(systemState);
+        networkScore = this.calculateNetworkScore(totalTransaction);
+        console.log("Total Transaction:", networkScore);
+        validatorHealth = 100;
 
         // Update cache
         this.cachedNetworkScore = networkScore;
@@ -126,7 +125,7 @@ export class EnemyMaintainer {
       } catch (error) {
         console.warn(
           "[EnemyMaintainer] Sui fetch failed, using cached data:",
-          error
+          error,
         );
       } finally {
         this.isFetching = false;
@@ -140,23 +139,12 @@ export class EnemyMaintainer {
       const validatorFactor = 0.9 + (validatorHealth / 100) * 0.2; // 0.9 - 1.1
       const effectiveDifficulty = Math.min(
         9,
-        this.config.baseDifficulty * networkFactor * validatorFactor
+        this.config.baseDifficulty * networkFactor * validatorFactor,
       );
 
-      // Tính target enemy count dựa trên effective difficulty
-      const baseStats = this.getBaseStats();
-      const adjustedEnemiesPerChunk =
-        baseStats.enemiesPerChunk * (0.7 + (effectiveDifficulty / 9) * 0.6); // 0.7 - 1.3
+      // Fixed target count
+      this.targetEnemyCount = this.config.chunkCount * 2;
 
-      this.targetEnemyCount = Math.ceil(
-        this.config.chunkCount * adjustedEnemiesPerChunk
-      );
-
-      // Giới hạn tối đa
-      const maxEnemies = Math.min(20, this.config.chunkCount * 3);
-      this.targetEnemyCount = Math.min(this.targetEnemyCount, maxEnemies);
-
-      // Đảm bảo ít nhất 1 quái
       this.targetEnemyCount = Math.max(1, this.targetEnemyCount);
 
       // Update difficulty info
@@ -179,12 +167,6 @@ export class EnemyMaintainer {
       if (this.currentEnemyCount < this.targetEnemyCount) {
         this.spawnOneEnemy(effectiveDifficulty);
       }
-
-      console.log(
-        `[EnemyMaintainer] Current: ${this.currentEnemyCount}/${this.targetEnemyCount} | ` +
-          `Difficulty: ${effectiveDifficulty.toFixed(1)} | ` +
-          `Net: ${networkScore.toFixed(0)} | Val: ${validatorHealth.toFixed(0)}`
-      );
     } catch (error) {
       console.error("[EnemyMaintainer] Error:", error);
       // Fallback: vẫn maintain với base difficulty
@@ -194,48 +176,25 @@ export class EnemyMaintainer {
     }
   }
 
-  private calculateNetworkScore(systemState: any, checkpoint: any): number {
-    const currentTxCount = BigInt(checkpoint.networkTotalTransactions || "0");
-    const gasPrice = BigInt(systemState.referenceGasPrice || "1000");
+  private calculateNetworkScore(totalTransaction: any): number {
+    const currentTxCount = BigInt(totalTransaction || "0");
+    const now = Date.now();
 
-    // TX delta
     let txDelta = 0;
     if (this.lastTxCount > BigInt(0)) {
       txDelta = Number(currentTxCount - this.lastTxCount);
     }
     this.lastTxCount = currentTxCount;
 
-    // Score
-    const txScore = Math.min(50, txDelta / 40);
-    const gasRatio = Number(gasPrice) / 1000;
-    const gasScore = Math.min(50, gasRatio * 10);
+    const prevTs = this.lastTxTimestampMs ?? now;
+    const deltaMs = Math.max(1, now - prevTs);
+    this.lastTxTimestampMs = now;
+    const tps = txDelta / (deltaMs / 1000);
 
-    return Math.min(100, txScore + gasScore);
-  }
+    const targetTps = 100;
+    const txScore = Math.min(100, (tps / targetTps) * 100);
 
-  private calculateValidatorHealth(systemState: any): number {
-    const validators = systemState.activeValidators || [];
-    const activeCount = validators.length;
-
-    let score = 0;
-
-    // Điểm từ số validators (0-50)
-    if (activeCount >= 100) score += 50;
-    else if (activeCount >= 80) score += 40;
-    else if (activeCount >= 60) score += 30;
-    else if (activeCount >= 40) score += 20;
-    else score += 10;
-
-    // Điểm từ epoch progress (0-50)
-    const epochDuration = Number(systemState.epochDurationMs || 86400000);
-    const epochStart = Number(systemState.epochStartTimestampMs || Date.now());
-    const epochProgress = (Date.now() - epochStart) / epochDuration;
-
-    if (epochProgress < 1.0) score += 50;
-    else if (epochProgress < 1.2) score += 35;
-    else score += 20;
-
-    return Math.min(100, score);
+    return Math.max(0, Math.min(100, txScore));
   }
 
   private getNetworkStatus(score: number): string {

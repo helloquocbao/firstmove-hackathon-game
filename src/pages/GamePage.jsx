@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  ConnectButton,
   useCurrentAccount,
   useSignAndExecuteTransaction,
 } from "@mysten/dapp-kit";
@@ -16,12 +15,15 @@ import {
   WORLD_REGISTRY_ID,
 } from "../chain/config";
 import { suiClient } from "../chain/suiClient";
-import { startGame } from "../game/start";
+import { startGame, resetGame } from "../game/start";
 import {
   isWalkableTile,
   normalizeTileId,
   normalizeDecoId,
 } from "../game/tiles";
+import { User, Gift, Info, X, Copy, RefreshCw, Play, Skull } from "lucide-react";
+import { WalletHeader } from "../components";
+import { useRewardBalance } from "../hooks/useRewardBalance";
 import "./GamePage.css";
 
 const TILE_SIZE = 32;
@@ -34,6 +36,7 @@ export default function GamePage() {
   const account = useCurrentAccount();
   const { mutateAsync: signAndExecute, isPending } =
     useSignAndExecuteTransaction();
+  const { refetch: refetchBalance } = useRewardBalance();
   const [worldId, setWorldId] = useState("");
   const [worldListError, setWorldListError] = useState("");
   const [mapLoadError, setMapLoadError] = useState("");
@@ -45,26 +48,24 @@ export default function GamePage() {
   const [playNotice, setPlayNotice] = useState("");
   const [playError, setPlayError] = useState("");
   const [claimError, setClaimError] = useState("");
-  const [claimCheckMessage, setClaimCheckMessage] = useState("");
   const [isKeyFound, setIsKeyFound] = useState(false);
   const [isPlayBusy, setIsPlayBusy] = useState(false);
   const [isClaimBusy, setIsClaimBusy] = useState(false);
-  const [isClaimCheckBusy, setIsClaimCheckBusy] = useState(false);
   const [isGameStarted, setIsGameStarted] = useState(false);
   const [pendingMapData, setPendingMapData] = useState(null);
 
   // Pre-start modal (local/off-chain entry)
-  const [showStartModal, setShowStartModal] = useState(true);
-  const [startMode, setStartMode] = useState("player");
+  const [showStartModal, setShowStartModal] = useState(false);
+  const [showResumeModal, setShowResumeModal] = useState(false);
+  const [startMode, setStartMode] = useState("player"); // Default to off-chain
   const [startModalError, setStartModalError] = useState("");
   const [startChainMode, setStartChainMode] = useState("v1");
 
   // Play mode: 'v1' = free (2 plays/day), 'v2' = paid (3 plays/day, better rewards)
   const [playMode, setPlayMode] = useState("v1");
 
-  // UI visibility states for collapsible overlays
-  const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  // Active panel state: null | 'character' | 'rewards' | 'info'
+  const [activePanel, setActivePanel] = useState(null);
 
   // Character stats
   const [characterId, setCharacterId] = useState("");
@@ -99,6 +100,7 @@ export default function GamePage() {
     networkStatus: "⚪ Loading...",
     validatorStatus: "⚪ Loading...",
   });
+  const [respawnCountdown, setRespawnCountdown] = useState(null);
 
   useEffect(() => {
     const stored = loadPlayState();
@@ -122,8 +124,27 @@ export default function GamePage() {
 
   useEffect(() => {
     const handler = () => setIsKeyFound(true);
+    const deadHandler = () => {
+      console.log("GamePage: Received game:player-dead event");
+      setRespawnCountdown(3);
+      const interval = setInterval(() => {
+        setRespawnCountdown((prev) => {
+          if (prev === null || prev <= 1) {
+            clearInterval(interval);
+            reloadGameFromStorage();
+            setPlayNotice(""); // Clear any notice
+            return null; // Close modal
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    };
     window.addEventListener("game:key-found", handler);
-    return () => window.removeEventListener("game:key-found", handler);
+    window.addEventListener("game:player-dead", deadHandler);
+    return () => {
+      window.removeEventListener("game:key-found", handler);
+      window.removeEventListener("game:player-dead", deadHandler);
+    };
   }, []);
 
   // Listen for difficulty updates from game
@@ -145,43 +166,12 @@ export default function GamePage() {
     return () => window.removeEventListener("game:difficulty-update", handler);
   }, []);
 
+  // Cleanup game state when component unmounts (navigating away)
   useEffect(() => {
-    if (!playId || !PACKAGE_ID) {
-      setClaimCheckMessage("");
-      setIsClaimCheckBusy(false);
-      return;
-    }
-
-    let isActive = true;
-    setClaimCheckMessage("Checking reward status on-chain...");
-    setIsClaimCheckBusy(true);
-
-    void (async () => {
-      try {
-        const claimed = await hasRewardBeenClaimed(playId);
-        if (!isActive) return;
-        if (claimed) {
-          resetPlayState("Reward already claimed on-chain.");
-          setClaimCheckMessage("This play already has a claim recorded.");
-        } else {
-          setClaimCheckMessage("No claim event found yet for this play.");
-        }
-      } catch (error) {
-        if (!isActive) return;
-        setClaimCheckMessage(
-          error instanceof Error ? error.message : String(error)
-        );
-      } finally {
-        if (isActive) {
-          setIsClaimCheckBusy(false);
-        }
-      }
-    })();
-
     return () => {
-      isActive = false;
+      resetGame();
     };
-  }, [playId]);
+  }, []);
 
   useEffect(() => {
     void (async () => {
@@ -388,6 +378,7 @@ export default function GamePage() {
   function clearPlayState() {
     localStorage.removeItem(PLAY_STATE_KEY);
     localStorage.removeItem(PLAY_TARGET_KEY);
+    localStorage.removeItem("PLAY_CHESTS");
   }
 
   function resetPlayState(nextNotice) {
@@ -440,7 +431,7 @@ export default function GamePage() {
     } catch (error) {
       setPlayError(
         "Failed to fetch: " +
-          (error instanceof Error ? error.message : String(error))
+        (error instanceof Error ? error.message : String(error))
       );
     }
   }
@@ -528,7 +519,7 @@ export default function GamePage() {
     } catch (error) {
       setPlayError(
         "Failed to fetch: " +
-          (error instanceof Error ? error.message : String(error))
+        (error instanceof Error ? error.message : String(error))
       );
     } finally {
       setIsFetchingUnclaimed(false);
@@ -668,10 +659,26 @@ export default function GamePage() {
 
       localStorage.setItem("CUSTOM_MAP", JSON.stringify(mapData));
       setPendingMapData(mapData);
-      if (isGameStarted) {
+      setLoadedChunks(chunkEntries.length);
+
+      // Auto-start logic: check for pending on-chain task
+      if (!isGameStarted) {
+        const storedPlay = loadPlayState();
+        const storedTarget = loadPlayTarget();
+        const hasPendingTask = storedPlay?.playId && !storedTarget?.found;
+
+        if (hasPendingTask) {
+          // Show resume modal for pending task
+          setShowResumeModal(true);
+        } else {
+          // Auto-start in offchain mode
+          setIsGameStarted(true);
+          startGame(mapData);
+        }
+      } else {
+        // Game already started, just reload
         startGame(mapData);
       }
-      setLoadedChunks(chunkEntries.length);
     } catch (error) {
       setMapLoadError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -699,6 +706,42 @@ export default function GamePage() {
     } catch (error) {
       console.error(error);
       return null;
+    }
+  }
+
+  function generateChests(keyTarget) {
+    const raw = localStorage.getItem("CUSTOM_MAP");
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      const grid = Array.isArray(parsed.grid) ? parsed.grid : [];
+      const floors = [];
+      for (let y = 0; y < grid.length; y += 1) {
+        const row = grid[y] ?? [];
+        for (let x = 0; x < row.length; x += 1) {
+          if (isWalkableTile(Number(row[x]))) {
+            floors.push({ x, y });
+          }
+        }
+      }
+      if (!floors.length) return [];
+
+      const chests = [{ x: keyTarget.x, y: keyTarget.y, hasKey: true, id: "chest_key" }];
+
+      // Pick 4 more unique locations
+      let attempts = 0;
+      while (chests.length < 5 && attempts < 100) {
+        attempts++;
+        const candidate = floors[Math.floor(Math.random() * floors.length)];
+        const exists = chests.some(c => c.x === candidate.x && c.y === candidate.y);
+        if (!exists) {
+          chests.push({ x: candidate.x, y: candidate.y, hasKey: false, id: `chest_${chests.length}` });
+        }
+      }
+      return chests;
+    } catch (e) {
+      console.error(e);
+      return [];
     }
   }
 
@@ -854,6 +897,9 @@ export default function GamePage() {
       const target = pickKeyTarget();
       if (target) {
         storePlayTarget({ ...target, worldId: worldId, found: false });
+        // Generate chests
+        const chests = generateChests(target);
+        localStorage.setItem("PLAY_CHESTS", JSON.stringify(chests));
       }
 
       storePlayState({
@@ -882,6 +928,8 @@ export default function GamePage() {
 
   async function handleStartModalAction() {
     setStartModalError("");
+
+    // Default to player mode - auto start off-chain
     if (startMode === "player") {
       if (isMapLoading) {
         setStartModalError("World is still loading.");
@@ -911,7 +959,7 @@ export default function GamePage() {
     }
 
     if (!account?.address) {
-      setStartModalError("Connect wallet to play on-chain.");
+      setStartModalError("Connect wallet for on-chain play.");
       return;
     }
     const resolvedCharacterId = characterId || (await loadCharacter());
@@ -930,6 +978,22 @@ export default function GamePage() {
     }
     setShowStartModal(false);
     void handlePlayOnChain(startChainMode);
+  }
+
+  function handleResumeTask() {
+    setShowResumeModal(false);
+    setIsGameStarted(true);
+    reloadGameFromStorage();
+  }
+
+  function handleStartFresh() {
+    clearPlayState();
+    setPlayId("");
+    setPlayKeyHex("");
+    setIsKeyFound(false);
+    setShowResumeModal(false);
+    setIsGameStarted(true);
+    reloadGameFromStorage();
   }
 
   async function handleClaimOnChain() {
@@ -975,26 +1039,65 @@ export default function GamePage() {
       });
 
       const result = await signAndExecute({ transaction: tx });
-      const txBlock = await suiClient.getTransactionBlock({
-        digest: result.digest,
-        options: { showEvents: true },
-      });
-      const eventType = `${PACKAGE_ID}::world::RewardClaimedEvent`;
-      const rewardEvent = txBlock.events?.find(
-        (event) => event.type === eventType
-      );
-      const parsed = rewardEvent?.parsedJson ?? {};
-      const rewardValue =
-        typeof parsed.reward === "string"
-          ? parsed.reward
-          : typeof parsed.reward === "number"
-            ? String(parsed.reward)
-            : "";
 
+      // Transaction was submitted successfully - reset play state immediately
+      // This ensures the UI updates even if we can't fetch transaction details yet
+      let rewardValue = "";
+
+      // Retry logic: wait for transaction to be indexed on chain
+      let txBlock = null;
+      let retryCount = 0;
+      const maxRetries = 5;
+      const retryDelay = 1500; // 1.5 seconds
+
+      while (retryCount < maxRetries) {
+        try {
+          await new Promise((resolve) => setTimeout(resolve, retryDelay));
+          txBlock = await suiClient.getTransactionBlock({
+            digest: result.digest,
+            options: { showEvents: true },
+          });
+          if (txBlock && txBlock.events) {
+            const eventType = `${PACKAGE_ID}::world::RewardClaimedEvent`;
+            const rewardEvent = txBlock.events?.find(
+              (event) => event.type === eventType
+            );
+            const parsed = rewardEvent?.parsedJson ?? {};
+            rewardValue =
+              typeof parsed.reward === "string"
+                ? parsed.reward
+                : typeof parsed.reward === "number"
+                  ? String(parsed.reward)
+                  : "";
+            break; // Success
+          }
+        } catch (fetchError) {
+          console.warn(
+            `Retry ${retryCount + 1}/${maxRetries}: waiting for claim transaction...`,
+            fetchError
+          );
+        }
+        retryCount++;
+      }
+
+      // Reset play state regardless of whether we could fetch details
       resetPlayState(
-        rewardValue ? `Claimed ${rewardValue} CHUNK.` : "Claimed reward."
+        rewardValue ?
+          <div className="flex items-center gap-2">
+            Claimed
+            <img
+              alt="icon"
+              className="w-4 h-4"
+              src="https://ik.imagekit.io/huubao/chunk_coin.png?updatedAt=1768641987539"
+            /> {rewardValue} CHUNK
+          </div>
+          : "Claimed reward successfully!"
       );
       await loadRewardBalance();
+      // Delay to allow indexer to sync before refetching global balance
+      setTimeout(() => void refetchBalance(), 1500);
+      await loadCharacter(); // Refresh character stats (daily plays, free plays)
+      reloadGameFromStorage(); // Refresh map to clear chests
     } catch (error) {
       setClaimError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -1002,37 +1105,7 @@ export default function GamePage() {
     }
   }
 
-  async function handleVerifyClaimStatus() {
-    setClaimError("");
 
-    if (!playId) {
-      setClaimCheckMessage("No active play to verify.");
-      return;
-    }
-    if (!PACKAGE_ID) {
-      setClaimCheckMessage("Missing package id for event search.");
-      return;
-    }
-    if (isClaimCheckBusy) return;
-
-    setClaimCheckMessage("Checking reward status on-chain...");
-    setIsClaimCheckBusy(true);
-    try {
-      const claimed = await hasRewardBeenClaimed(playId);
-      if (claimed) {
-        resetPlayState("Reward already claimed on-chain.");
-        setClaimCheckMessage("Reward was already claimed for that play.");
-      } else {
-        setClaimCheckMessage("No claim event found yet for this play.");
-      }
-    } catch (error) {
-      setClaimCheckMessage(
-        error instanceof Error ? error.message : String(error)
-      );
-    } finally {
-      setIsClaimCheckBusy(false);
-    }
-  }
 
   async function handleCreateCharacter() {
     setCreateCharacterError("");
@@ -1063,8 +1136,18 @@ export default function GamePage() {
 
       await signAndExecute({ transaction: tx });
 
-      // Reload character after creation
-      await loadCharacter();
+      setPlayNotice("Character created! Syncing with chain...");
+
+      // Delay to allow indexer to catch up
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+
+      // Reload character after creation with retry
+      let nextId = await loadCharacter();
+      if (!nextId) {
+        // Retry once if not found immediately
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        nextId = await loadCharacter();
+      }
 
       setShowCreateCharacterModal(false);
       setNewCharacterName("");
@@ -1091,43 +1174,46 @@ export default function GamePage() {
         <span className="game-haze" />
       </div>
 
-      {/* Toggle buttons */}
-      <button
-        className="game-toggle-btn game-toggle-header"
-        onClick={() => setIsHeaderCollapsed(!isHeaderCollapsed)}
-        title={isHeaderCollapsed ? "Show header" : "Hide header"}
-      >
-        {isHeaderCollapsed ? "☰" : "✕"}
-      </button>
-      <button
-        className={`game-toggle-btn game-toggle-sidebar ${
-          !isSidebarCollapsed ? "sidebar-open" : ""
-        }`}
-        onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-        title={isSidebarCollapsed ? "Show panel" : "Hide panel"}
-      >
-        {isSidebarCollapsed ? "◀" : "▶"}
-      </button>
+      {/* Floating Panel Buttons */}
+      <div className="game-panel-buttons">
+        <button
+          className={`game-panel-btn ${activePanel === 'character' ? 'active' : ''}`}
+          onClick={() => setActivePanel(activePanel === 'character' ? null : 'character')}
+          title="Character"
+        >
+          <User size={18} />
+        </button>
+        <button
+          className={`game-panel-btn ${activePanel === 'rewards' ? 'active' : ''} ${playId && isKeyFound ? 'notification' : ''}`}
+          onClick={() => setActivePanel(activePanel === 'rewards' ? null : 'rewards')}
+          title="Rewards"
+        >
+          <Gift size={18} />
+        </button>
+        <button
+          className={`game-panel-btn ${activePanel === 'info' ? 'active' : ''}`}
+          onClick={() => setActivePanel(activePanel === 'info' ? null : 'info')}
+          title="Info"
+        >
+          <Info size={18} />
+        </button>
+      </div>
 
       <div className="game-shell">
-        <header
-          className={`game-header ${isHeaderCollapsed ? "collapsed" : ""}`}
-        >
-          <div>
-            <div className="game-eyebrow">Skyworld run</div>
-            <h1 className="game-title">Chunk adventure</h1>
-            <p className="game-subtitle">
-              Test your map and feel the flow before minting.
-            </p>
-          </div>
-          <div className="game-links">
+        {/* Minimal Header */}
+        <header className="game-header">
+          <nav className="game-nav">
             <Link className="game-link" to="/">
               Home
             </Link>
             <Link className="game-link" to="/editor">
               Editor
             </Link>
-          </div>
+            <Link className="game-link" to="/marketplace">
+              Marketplace
+            </Link>
+          </nav>
+          <WalletHeader />
         </header>
 
         <div className="game-stage">
@@ -1141,247 +1227,414 @@ export default function GamePage() {
             )}
           </div>
 
-          <aside
-            className={`game-info ${isSidebarCollapsed ? "collapsed" : ""}`}
-          >
-            <div className="game-info__title flex justify-between items-center">
-              <span className="font-bold">MISSION</span>
-            </div>
-            {isMapLoading && (
-              <div className="game-info__note">Loading world...</div>
-            )}
-            {loadedChunks !== null && (
-              <div className="game-info__note">
-                Loaded {loadedChunks} chunks.
+          {/* Character Panel */}
+          {activePanel === 'character' && (
+            <aside className="game-panel">
+              <div className="game-panel__header">
+                <span>Character</span>
+                <button onClick={() => setActivePanel(null)}><X size={16} /></button>
               </div>
-            )}
-            {worldListError && (
-              <div className="game-info__error">{worldListError}</div>
-            )}
-            {mapLoadError && (
-              <div className="game-info__error">{mapLoadError}</div>
-            )}
-
-            <div className="game-info__title">Wallet</div>
-            <div className="game-info__card">
-              <span>Reward balance</span>
-              <span>{rewardBalance}</span>
-            </div>
-            <ConnectButton />
-
-            {characterId && (
-              <>
-                <div className="game-info__title">Character</div>
-                <div className="game-info__card">
-                  <span>Name</span>
-                  <span>{characterName || "-"}</span>
-                </div>
-                <div className="game-info__card">
-                  <span>❤️ Health</span>
-                  <span>{characterHealth}</span>
-                </div>
-                <div className="game-info__card">
-                  <span>⚔️ Power</span>
-                  <span>{characterPower}</span>
-                </div>
-                <div className="game-info__card">
-                  <span>✨ Potential</span>
-                  <span>{characterPotential}</span>
-                </div>
-                <div className="game-info__card">
-                  <span>🎮 Daily Plays</span>
-                  <span>{characterDailyPlays}/3</span>
-                </div>
-                <div className="game-info__card">
-                  <span>🆓 Free Plays</span>
-                  <span>{characterFreePlays}/2</span>
-                </div>
-              </>
-            )}
-            {!characterId && account?.address && (
-              <div className="game-info__note">
-                No character found. Create one in Editor.
-              </div>
-            )}
-
-            <div className="game-info__title">Rewards</div>
-
-            {/* Pending Session Warning */}
-            {playId && !isKeyFound && (
-              <div className="pending-session-warning">
-                <div className="pending-session-header">
-                  ⚠️ Pending Game Session
-                </div>
-                <div className="pending-session-info">
-                  <span>Play ID: {playId}</span>
-                  <span>
-                    World: {loadPlayState()?.worldId?.slice(0, 10) || "-"}...
-                  </span>
-                </div>
-
-                {/* Backup Key - User có thể copy để dùng máy khác */}
-                <div className="backup-key-section">
-                  <div className="backup-key-label">
-                    🔑 Backup Key (copy này để dùng máy khác):
-                  </div>
-                  <div className="backup-key-value">
-                    <code>{playKeyHex}</code>
+              <div className="game-panel__body">
+                {characterId ? (
+                  <>
+                    <div className="game-info__card">
+                      <span>Name</span>
+                      <span>{characterName || "-"}</span>
+                    </div>
+                    <div className="game-info__card">
+                      <span>Health</span>
+                      <span>{characterHealth}</span>
+                    </div>
+                    <div className="game-info__card">
+                      <span>Power</span>
+                      <span>{characterPower}</span>
+                    </div>
+                    <div className="game-info__card">
+                      <span>Potential</span>
+                      <span>{characterPotential}</span>
+                    </div>
+                    <div className="game-info__card">
+                      <span>Daily Plays</span>
+                      <span>{characterDailyPlays}/3</span>
+                    </div>
+                    <div className="game-info__card">
+                      <span>Free Plays</span>
+                      <span>{characterFreePlays}/2</span>
+                    </div>
+                  </>
+                ) : account?.address ? (
+                  <div className="game-info__note">
+                    No character found.
                     <button
-                      className="copy-btn"
-                      onClick={() => {
-                        navigator.clipboard.writeText(playKeyHex);
-                        setPlayNotice("✅ Key copied to clipboard!");
-                      }}
+                      className="game-btn game-btn--primary"
+                      style={{ marginTop: '8px', width: '100%' }}
+                      onClick={() => setShowCreateCharacterModal(true)}
                     >
-                      📋 Copy
+                      Create Character
                     </button>
                   </div>
-                </div>
-                <div className="pending-session-hint">
-                  {playId === "pending"
-                    ? "Transaction submitted but Play ID not yet indexed."
-                    : "Find the key in the game to claim your reward!"}
-                </div>
-                <div className="pending-session-buttons">
-                  {playId === "pending" && (
+                ) : (
+                  <div className="game-info__note">Connect wallet to see character.</div>
+                )}
+              </div>
+            </aside>
+          )}
+
+          {/* Quest Board Panel */}
+          {activePanel === 'rewards' && (
+            <aside className="game-panel">
+              <div className="game-panel__header">
+                <span>Quest Board</span>
+                <button onClick={() => setActivePanel(null)}><X size={16} /></button>
+              </div>
+              <div className="game-panel__body">
+                {/* Active Quest Status */}
+                {playId && !isKeyFound && (
+                  <div className="quest-active">
+                    <div className="quest-active__header">
+                      <span className="quest-active__badge">ACTIVE</span>
+                      <span className="quest-active__id">Quest #{playId}</span>
+                    </div>
+                    <div className="quest-active__objective">
+                      🗝️ Find the hidden key to claim your reward!
+                    </div>
+                    <div className="quest-active__info">
+                      <div className="quest-info-row">
+                        <span>World:</span>
+                        <span>{loadPlayState()?.worldId?.slice(0, 10) || "-"}...</span>
+                      </div>
+                      <div className="quest-info-row">
+                        <span>Status:</span>
+                        <span className="text-yellow">In Progress</span>
+                      </div>
+                    </div>
+                    <div className="quest-backup-key">
+                      <div className="quest-backup-key__label">Backup Key:</div>
+                      <div className="quest-backup-key__value">
+                        <code>{playKeyHex}</code>
+                        <button
+                          className="copy-btn"
+                          onClick={() => {
+                            navigator.clipboard.writeText(playKeyHex);
+                            setPlayNotice("Key copied!");
+                          }}
+                          title="Copy key"
+                        >
+                          <Copy size={12} />
+                        </button>
+                      </div>
+                      <div className="quest-backup-key__hint">
+                        Save this key to restore your quest later
+                      </div>
+                    </div>
+                    <div className="quest-actions">
+                      {playId === "pending" && (
+                        <button
+                          className="game-btn game-btn--retry"
+                          onClick={retryFetchPlayId}
+                          disabled={isWalletBusy}
+                        >
+                          <RefreshCw size={12} /> Retry Fetch
+                        </button>
+                      )}
+                      <button
+                        className="game-btn game-btn--cancel"
+                        onClick={() => {
+                          if (confirm("Abandon quest? You will lose progress.")) {
+                            resetPlayState("Quest abandoned.");
+                          }
+                        }}
+                      >
+                        Abandon Quest
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Quest Complete - Ready to Claim */}
+                {playId && isKeyFound && (
+                  <div className="quest-complete">
+                    <div className="quest-complete__header">
+                      ✅ Quest Complete!
+                    </div>
+                    <div className="quest-complete__message">
+                      You found the key! Claim your reward now.
+                    </div>
                     <button
-                      className="game-btn game-btn--retry"
-                      onClick={retryFetchPlayId}
+                      className="game-btn game-btn--primary game-btn--large"
+                      onClick={handleClaimOnChain}
                       disabled={isWalletBusy}
                     >
-                      🔄 Retry Fetch
+                      {isClaimBusy ? "Claiming..." : "🎁 Claim Reward"}
                     </button>
-                  )}
-                  <button
-                    className="game-btn game-btn--cancel"
-                    onClick={() => {
-                      if (
-                        confirm(
-                          "Cancel this session? You will lose the play and cannot claim reward."
-                        )
-                      ) {
-                        resetPlayState("Session cancelled.");
-                      }
-                    }}
-                  >
-                    Cancel Session
-                  </button>
+                  </div>
+                )}
+
+                {/* Available Quests */}
+                {!playId && (
+                  <>
+
+                    {/* Free Quest */}
+                    <div className="quest-card quest-card--free">
+                      <div className="quest-card__header">
+                        <div className="quest-card__title">
+                          <span>Free Quest</span>
+                        </div>
+                        <div className="quest-card__badge quest-card__badge--free">
+                          FREE
+                        </div>
+                      </div>
+                      <div className="quest-card__description">
+                        Practice run with basic rewards. Perfect for beginners!
+                      </div>
+                      <div className="quest-card__stats">
+                        <div className="quest-stat">
+                          <span className="quest-stat__label">Plays Today:</span>
+                          <span className="quest-stat__value">{characterFreePlays}/2</span>
+                        </div>
+                        <div className="quest-stat">
+                          <span className="quest-stat__label">Reward:</span>
+                          <span className="quest-stat__value flex items-center gap-1">
+                            <img
+                              alt="chunk"
+                              className="w-3 h-3"
+                              src="https://ik.imagekit.io/huubao/chunk_coin.png"
+                            />
+                            2 CHUNK
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        className="game-btn game-btn--quest game-btn--quest-free"
+                        onClick={() => handlePlayOnChain("v1")}
+                        disabled={isWalletBusy || !account?.address || characterFreePlays >= 2}
+                      >
+                        {isPlayBusy && playMode === "v1" ? (
+                          "Starting..."
+                        ) : characterFreePlays >= 2 ? (
+                          "Daily Limit Reached"
+                        ) : (
+                          <>
+                            <Play size={14} /> Free Quest
+                          </>
+                        )}
+                      </button>
+                      {characterFreePlays >= 2 && (
+                        <div className="quest-card__note">
+                          Reset at next epoch (~24h)
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Premium Quest */}
+                    <div className="quest-card quest-card--premium">
+                      <div className="quest-card__header">
+                        <div className="quest-card__title">
+                          <span>Premium Quest</span>
+                        </div>
+                        <div className="quest-card__badge quest-card__badge--premium">
+                          PREMIUM
+                        </div>
+                      </div>
+                      <div className="quest-card__description">
+                        Enhanced rewards for experienced adventurers. Higher stakes, bigger rewards!
+                      </div>
+                      <div className="quest-card__stats">
+                        <div className="quest-stat">
+                          <span className="quest-stat__label">Plays Today:</span>
+                          <span className="quest-stat__value">{characterDailyPlays}/3</span>
+                        </div>
+                        <div className="quest-stat">
+                          <span className="quest-stat__label">Reward:</span>
+                          <span className="quest-stat__value flex items-center gap-1">
+                            <img
+                              alt="chunk"
+                              className="w-3 h-3"
+                              src="https://ik.imagekit.io/huubao/chunk_coin.png"
+                            />
+                            2-15 CHUNK
+                          </span>
+                        </div>
+                        <div className="quest-stat">
+                          <span className="quest-stat__label">Cost:</span>
+                          <span className="quest-stat__value quest-stat__value--cost flex items-center gap-1">
+                            <img
+                              alt="chunk"
+                              className="w-3 h-3"
+                              src="https://ik.imagekit.io/huubao/chunk_coin.png"
+                            />
+                            5 CHUNK
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        className="game-btn game-btn--quest game-btn--quest-premium text-nowrap flex flex-col"
+                        onClick={() => handlePlayOnChain("v2")}
+                        disabled={isWalletBusy || !account?.address || characterDailyPlays >= 3}
+                      >
+                        {isPlayBusy && playMode === "v2" ? (
+                          "Starting..."
+                        ) : characterDailyPlays >= 3 ? (
+                          "Daily Limit Reached"
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-1"><Play size={14} /> Premium Quest</div>
+
+                            <div className="flex items-center gap-1"> (
+                              <img
+                                alt="chunk"
+                                className="w-3 h-3 inline-block"
+                                src="https://ik.imagekit.io/huubao/chunk_coin.png"
+                              />
+                              5 CHUNK)</div>
+                          </>
+                        )}
+                      </button>
+                      {characterDailyPlays >= 3 && (
+                        <div className="quest-card__note">
+                          Reset at next epoch (~24h)
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Restore Session */}
+                    <div className="quest-restore flex justify-center items-center">
+                      <button
+                        className="game-btn game-btn--restore flex justify-center items-center gap-2"
+                        onClick={() => setShowRestoreModal(true)}
+                      >
+                        <RefreshCw size={12} /> Restore Previous Quest
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {/* Messages */}
+                {playNotice && <div className="game-info__note">{playNotice}</div>}
+                {playError && <div className="game-info__error">{playError}</div>}
+                {claimError && <div className="game-info__error">{claimError}</div>}
+              </div>
+            </aside>
+          )}
+
+          {/* Info Panel */}
+          {activePanel === 'info' && (
+            <aside className="game-panel">
+              <div className="game-panel__header">
+                <span>Info</span>
+                <button onClick={() => setActivePanel(null)}><X size={16} /></button>
+              </div>
+              <div className="game-panel__body">
+                {/* Map Status */}
+                {isMapLoading && (
+                  <div className="game-info__note">Loading world...</div>
+                )}
+                {loadedChunks !== null && (
+                  <div className="game-info__note">
+                    Loaded {loadedChunks} chunks.
+                  </div>
+                )}
+                {worldListError && (
+                  <div className="game-info__error">{worldListError}</div>
+                )}
+                {mapLoadError && (
+                  <div className="game-info__error">{mapLoadError}</div>
+                )}
+
+                {/* Controls */}
+                <div className="game-info__title">Controls</div>
+                <div className="game-info__card">
+                  <span>Move</span>
+                  <span>W A S D</span>
+                </div>
+                <div className="game-info__card">
+                  <span>Attack</span>
+                  <span>Space</span>
+                </div>
+
+                {/* Network Status */}
+                <div className="game-info__title">Network</div>
+                <div className="game-info__card">
+                  <span>Status</span>
+                  <span>{difficultyInfo.networkStatus}</span>
+                </div>
+                <div className="game-info__card">
+                  <span>Validators</span>
+                  <span>{difficultyInfo.validatorStatus}</span>
+                </div>
+                <div className="game-info__card">
+                  <span>Difficulty</span>
+                  <span>{difficultyInfo.effectiveDifficulty.toFixed(1)}/9</span>
                 </div>
               </div>
-            )}
-
-            <div className="game-info__card">
-              <span>Play id</span>
-              <span>{playId || "-"}</span>
-            </div>
-            <div className="game-info__card">
-              <span>Key status</span>
-              <span>{isKeyFound ? "found" : playId ? "hidden" : "-"}</span>
-            </div>
-
-            {/* Restore Session Button - Khi đổi máy */}
-            {!playId && (
-              <button
-                className="game-btn game-btn--restore"
-                onClick={() => setShowRestoreModal(true)}
-              >
-                🔄 Restore Session (đổi máy)
-              </button>
-            )}
-
-            <div className="play-mode-selector">
-              <label>
-                <input
-                  type="radio"
-                  name="playMode"
-                  value="v1"
-                  checked={playMode === "v1"}
-                  onChange={(e) => setPlayMode(e.target.value)}
-                />
-                V1 - Free ({characterFreePlays}/2)
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="playMode"
-                  value="v2"
-                  checked={playMode === "v2"}
-                  onChange={(e) => setPlayMode(e.target.value)}
-                />
-                V2 - 5 CHUNK ({characterDailyPlays}/3)
-              </label>
-            </div>
-            <button
-              className="game-btn game-btn--primary"
-              onClick={() => handlePlayOnChain()}
-              disabled={isWalletBusy || !account?.address}
-            >
-              {isPlayBusy
-                ? "Starting..."
-                : `Start Play ${playMode.toUpperCase()}`}
-            </button>
-            <button
-              className="game-btn"
-              onClick={handleClaimOnChain}
-              disabled={!playId || !isKeyFound || isWalletBusy}
-            >
-              {isClaimBusy ? "Claiming..." : "Claim reward"}
-            </button>
-            <button
-              className="game-btn"
-              onClick={handleVerifyClaimStatus}
-              disabled={!playId || isWalletBusy || isClaimCheckBusy}
-            >
-              {isClaimCheckBusy ? "Checking..." : "Verify claim status"}
-            </button>
-            {playNotice && <div className="game-info__note">{playNotice}</div>}
-            {playError && <div className="game-info__error">{playError}</div>}
-            {claimError && <div className="game-info__error">{claimError}</div>}
-            {claimCheckMessage && (
-              <div className="game-info__note">{claimCheckMessage}</div>
-            )}
-
-            <div className="game-info__title">Controls</div>
-            <div className="game-info__card">
-              <span>Move</span>
-              <span>W A S D</span>
-            </div>
-            <div className="game-info__card">
-              <span>Attack</span>
-              <span>Space</span>
-            </div>
-
-            {/* Dynamic Difficulty Info */}
-            <div className="game-info__title">⛓️ Network Status</div>
-            <div className="game-info__card">
-              <span>Network</span>
-              <span>{difficultyInfo.networkStatus}</span>
-            </div>
-            <div className="game-info__card">
-              <span>Validators</span>
-              <span>{difficultyInfo.validatorStatus}</span>
-            </div>
-            <div className="game-info__card">
-              <span>Base Difficulty</span>
-              <span>{difficultyInfo.baseDifficulty}/9</span>
-            </div>
-            <div className="game-info__card">
-              <span>Effective</span>
-              <span>{difficultyInfo.effectiveDifficulty.toFixed(1)}/9</span>
-            </div>
-            <div className="game-info__card">
-              <span>Enemies</span>
-              <span>
-                {difficultyInfo.currentEnemyCount}/
-                {difficultyInfo.targetEnemyCount}
-              </span>
-            </div>
-            <div className="game-info__note">
-              Difficulty scales with Sui network activity.
-            </div>
-          </aside>
+            </aside>
+          )}
         </div>
       </div>
+
+      {/* Death Screen Overlay - Pixel Art Style */
+        respawnCountdown !== null && (
+          <div className="game-modal-overlay" style={{ zIndex: 9999, backgroundColor: 'rgba(20, 10, 10, 0.85)' }}>
+            <div className="game-modal" style={{
+              border: '4px solid #fff',
+              borderRadius: '0',
+              backgroundColor: '#000',
+              boxShadow: '8px 8px 0px rgba(0,0,0,0.5)',
+              imageRendering: 'pixelated',
+              fontFamily: '"Courier New", monospace',
+              textAlign: 'center',
+              padding: '2rem',
+              minWidth: '300px'
+            }}>
+              <div style={{ color: '#ff3333', marginBottom: '1rem' }}>
+                <Skull size={64} style={{ display: 'block', margin: '0 auto 1rem auto' }} strokeWidth={1.5} />
+                <h2 style={{ fontSize: '32px', textTransform: 'uppercase', letterSpacing: '2px', textShadow: '2px 2px 0px #550000' }}>YOU HAVE FALLEN</h2>
+              </div>
+              <div style={{ fontSize: '20px', color: '#fff' }}>
+                RESPAWN IN <span style={{ color: '#ffff00', fontSize: '24px' }}>{respawnCountdown}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+      {/* Resume Task Modal */}
+      {showResumeModal && (
+        <div className="game-modal-overlay" style={{ zIndex: 9998 }}>
+          <div className="game-modal" style={{
+            border: '4px solid #59b7ff',
+            borderRadius: '12px',
+            backgroundColor: 'rgba(13, 33, 55, 0.98)',
+            maxWidth: '400px',
+            textAlign: 'center',
+            padding: '24px'
+          }}>
+            <div style={{ color: '#59b7ff', marginBottom: '16px' }}>
+              <RefreshCw size={48} style={{ display: 'block', margin: '0 auto 12px auto' }} />
+              <h2 style={{ fontSize: '20px', marginBottom: '8px' }}>Pending On-Chain Task</h2>
+            </div>
+            <div style={{ color: '#b8daff', fontSize: '14px', marginBottom: '24px', lineHeight: 1.5 }}>
+              You have an incomplete on-chain game session.<br />
+              Would you like to continue or start fresh in offline mode?
+            </div>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+              <button
+                className="game-btn game-btn--primary"
+                onClick={handleResumeTask}
+                style={{ padding: '12px 24px' }}
+              >
+                Continue Task
+              </button>
+              <button
+                className="game-btn"
+                onClick={handleStartFresh}
+                style={{ padding: '12px 24px' }}
+              >
+                Start Fresh
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Create Character Modal */}
       {showCreateCharacterModal && (
@@ -1393,7 +1646,7 @@ export default function GamePage() {
                 className="game-modal__close"
                 onClick={() => setShowCreateCharacterModal(false)}
               >
-                ✕
+                <X size={16} />
               </button>
             </div>
             <div className="game-modal__body">
@@ -1438,8 +1691,8 @@ export default function GamePage() {
         <div className="game-modal-overlay">
           <div className="game-modal">
             <div className="game-modal__header">
-              <span>🔄 Restore Session</span>
-              <button onClick={() => setShowRestoreModal(false)}>×</button>
+              <span>Restore Session</span>
+              <button onClick={() => setShowRestoreModal(false)}><X size={16} /></button>
             </div>
             <div className="game-modal__body">
               {/* Fetch Unclaimed Plays */}
@@ -1451,21 +1704,20 @@ export default function GamePage() {
                   style={{ width: "100%", marginBottom: "12px" }}
                 >
                   {isFetchingUnclaimed
-                    ? "🔍 Đang tìm..."
-                    : "🔍 Tìm Play chưa claim"}
+                    ? "Searching..."
+                    : "Find Unclaimed Plays"}
                 </button>
 
                 {unclaimedPlays.length > 0 && (
                   <div className="unclaimed-list">
                     <div className="unclaimed-list-header">
-                      📋 Play chưa claim ({unclaimedPlays.length}):
+                      Unclaimed Plays ({unclaimedPlays.length}):
                     </div>
                     {unclaimedPlays.map((play) => (
                       <div
                         key={play.playId}
-                        className={`unclaimed-item ${
-                          restorePlayId === play.playId ? "selected" : ""
-                        }`}
+                        className={`unclaimed-item ${restorePlayId === play.playId ? "selected" : ""
+                          }`}
                         onClick={() => {
                           setRestorePlayId(play.playId);
                           setRestoreWorldId(play.worldId);
@@ -1473,12 +1725,12 @@ export default function GamePage() {
                       >
                         <span>Play #{play.playId}</span>
                         <span className="unclaimed-reward">
-                          💰 {play.minReward}-{play.maxReward}
+                          {play.minReward}-{play.maxReward}
                         </span>
                       </div>
                     ))}
                     <div className="unclaimed-note">
-                      ⚠️ Bạn vẫn cần nhập Key đã backup từ máy cũ!
+                      Note: You still need to enter the backup key from your old device.
                     </div>
                   </div>
                 )}
@@ -1496,7 +1748,7 @@ export default function GamePage() {
                 />
               </div>
               <div className="game-field">
-                <label>Key (32 ký tự hex) ⚠️ Bắt buộc</label>
+                <label>Key (32 hex characters) - Required</label>
                 <input
                   type="text"
                   value={restoreKeyHex}
@@ -1544,7 +1796,7 @@ export default function GamePage() {
                   setIsKeyFound(false);
                   setShowRestoreModal(false);
                   setPlayNotice(
-                    `✅ Session restored! Play ID: ${restorePlayId}`
+                    `Session restored! Play ID: ${restorePlayId}`
                   );
                 }}
                 disabled={!restorePlayId || !restoreKeyHex}
@@ -1566,7 +1818,7 @@ export default function GamePage() {
                 className="game-modal__close"
                 onClick={() => setShowStartModal(false)}
               >
-                X
+                <X size={16} />
               </button>
             </div>
             <div className="game-modal__body">
@@ -1579,9 +1831,8 @@ export default function GamePage() {
               )}
               <div className="game-start-options">
                 <label
-                  className={`game-start-option ${
-                    startMode === "player" ? "active" : ""
-                  }`}
+                  className={`game-start-option ${startMode === "player" ? "active" : ""
+                    }`}
                 >
                   <input
                     type="radio"
@@ -1600,9 +1851,8 @@ export default function GamePage() {
                 </label>
                 {hasPendingPlay && (
                   <label
-                    className={`game-start-option ${
-                      startMode === "resume" ? "active" : ""
-                    }`}
+                    className={`game-start-option ${startMode === "resume" ? "active" : ""
+                      }`}
                   >
                     <input
                       type="radio"
@@ -1623,9 +1873,8 @@ export default function GamePage() {
                   </label>
                 )}
                 <label
-                  className={`game-start-option ${
-                    startMode === "chain" ? "active" : ""
-                  }`}
+                  className={`game-start-option ${startMode === "chain" ? "active" : ""
+                    }`}
                 >
                   <input
                     type="radio"
@@ -1645,9 +1894,8 @@ export default function GamePage() {
                 {startMode === "chain" && (
                   <div className="game-start-chain">
                     <label
-                      className={`game-start-option ${
-                        startChainMode === "v1" ? "active" : ""
-                      }`}
+                      className={`game-start-option ${startChainMode === "v1" ? "active" : ""
+                        }`}
                     >
                       <input
                         type="radio"
@@ -1665,9 +1913,8 @@ export default function GamePage() {
                       </div>
                     </label>
                     <label
-                      className={`game-start-option ${
-                        startChainMode === "v2" ? "active" : ""
-                      }`}
+                      className={`game-start-option ${startChainMode === "v2" ? "active" : ""
+                        }`}
                     >
                       <input
                         type="radio"
@@ -1706,7 +1953,7 @@ export default function GamePage() {
                 }
               >
                 {startMode === "player"
-                  ? "Player"
+                  ? "Play"
                   : startMode === "resume"
                     ? "Resume"
                     : "Play On-chain"}
@@ -1832,52 +2079,7 @@ async function resolveChunkEntries(worldId, fields) {
     .filter((entry) => Boolean(entry));
 }
 
-function matchesPlayId(parsedJson, targetPlayId) {
-  if (!targetPlayId || !parsedJson || typeof parsedJson !== "object") {
-    return false;
-  }
-  const record = parsedJson;
-  const candidate =
-    typeof record.play_id === "string"
-      ? record.play_id
-      : typeof record.play_id === "number"
-        ? String(record.play_id)
-        : typeof record.playId === "string"
-          ? record.playId
-          : typeof record.playId === "number"
-            ? String(record.playId)
-            : "";
-  return candidate === targetPlayId;
-}
 
-async function hasRewardBeenClaimed(targetPlayId) {
-  if (!targetPlayId || !PACKAGE_ID) return false;
-  const eventType = `${PACKAGE_ID}::world::RewardClaimedEvent`;
-  let cursor = null;
-  let rounds = 0;
-  const limit = 50;
-  const maxRounds = 6;
-
-  while (rounds < maxRounds) {
-    const page = await suiClient.queryEvents({
-      query: { MoveEventType: eventType },
-      cursor: cursor ?? undefined,
-      limit,
-      order: "descending",
-    });
-    const events = page.data ?? [];
-
-    if (events.some((event) => matchesPlayId(event.parsedJson, targetPlayId))) {
-      return true;
-    }
-
-    if (!page.hasNextPage || !page.nextCursor) break;
-    cursor = page.nextCursor;
-    rounds += 1;
-  }
-
-  return false;
-}
 
 async function fetchListedChunk(worldId, chunkId) {
   if (!PACKAGE_ID || !worldId || !chunkId) return null;

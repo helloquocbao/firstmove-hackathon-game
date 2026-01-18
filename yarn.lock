@@ -582,20 +582,20 @@
     "@mysten/sui" "1.45.2"
     "@wallet-standard/core" "1.1.1"
 
-"@mysten/walrus-wasm@0.1.1":
-  version "0.1.1"
-  resolved "https://registry.yarnpkg.com/@mysten/walrus-wasm/-/walrus-wasm-0.1.1.tgz#6a1ed99ae3e7075f5dae6ee067f4265026bdddac"
-  integrity sha512-j+12gNbPAIkgY7g1d4aCF2rXDpgTLQsyjEdu0s7A8xlu/95u5quP7Tc7Jz7VLFfbtkJigBpGyPZ/8J2tZv4cJA==
+"@mysten/walrus-wasm@0.2.0":
+  version "0.2.0"
+  resolved "https://registry.yarnpkg.com/@mysten/walrus-wasm/-/walrus-wasm-0.2.0.tgz#252c30ee0a2c73f3071d1cd62b82000cf9c7aa16"
+  integrity sha512-QYZoS6CIoFnVxqYClXkwgeoUjnNUyPdXwoD1Re4Xo/TVdXXmpH46akodNJ+e6egUSrjzHgeiRgfAuq57sDXGNA==
 
-"@mysten/walrus@^0.8.6":
-  version "0.8.6"
-  resolved "https://registry.yarnpkg.com/@mysten/walrus/-/walrus-0.8.6.tgz#f06c2f909a6a5fef2ca3272bdf6d6bd0fb5483aa"
-  integrity sha512-ncaYuzOIik92ELpHbPW16YJJfOCcWDl0V2+l1dzTkQoSVEYjVE2jTZTqA5tI5g99tdDqtbkBUzmtFXChjrIp7w==
+"@mysten/walrus@^0.9.0":
+  version "0.9.0"
+  resolved "https://registry.yarnpkg.com/@mysten/walrus/-/walrus-0.9.0.tgz#4e3be94f420d767448fdf8e4c9cb9dd085afded4"
+  integrity sha512-rumbl5ThIIAAXn5SiMVlb7RZ2GZiqS14WfkseV/XCmgF3WhmpYqYoFWSvm1ou3/F7FdxrNWE5KF4982CR3zX4g==
   dependencies:
     "@mysten/bcs" "1.9.2"
     "@mysten/sui" "1.45.2"
     "@mysten/utils" "0.2.0"
-    "@mysten/walrus-wasm" "0.1.1"
+    "@mysten/walrus-wasm" "0.2.0"
     dataloader "^2.2.3"
 
 "@mysten/window-wallet-core@0.1.1":
@@ -634,6 +634,11 @@
   version "1.8.0"
   resolved "https://registry.yarnpkg.com/@noble/hashes/-/hashes-1.8.0.tgz#cee43d801fcef9644b11b8194857695acd5f815a"
   integrity sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==
+
+"@noble/hashes@^2.0.1":
+  version "2.0.1"
+  resolved "https://registry.yarnpkg.com/@noble/hashes/-/hashes-2.0.1.tgz#fc1a928061d1232b0a52bb754393c37a5216c89e"
+  integrity sha512-XlOlEbQcE9fmuXxrVTXCTlG2nlRXa9Rj3rr5Ue/+tX+nmkgbX720YHh0VR3hBF9xDvwnb8D2shVGOwNx+ulArw==
 
 "@protobuf-ts/grpcweb-transport@^2.11.1":
   version "2.11.1"

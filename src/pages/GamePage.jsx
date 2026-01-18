@@ -1389,7 +1389,14 @@ export default function GamePage() {
                         </div>
                         <div className="quest-stat">
                           <span className="quest-stat__label">Reward:</span>
-                          <span className="quest-stat__value">2 CHUNK</span>
+                          <span className="quest-stat__value flex items-center gap-1">
+                            <img
+                              alt="chunk"
+                              className="w-3 h-3"
+                              src="https://ik.imagekit.io/huubao/chunk_coin.png"
+                            />
+                            2 CHUNK
+                          </span>
                         </div>
                       </div>
                       <button
@@ -1403,7 +1410,7 @@ export default function GamePage() {
                           "Daily Limit Reached"
                         ) : (
                           <>
-                            <Play size={14} /> Accept Free Quest
+                            <Play size={14} /> Free Quest
                           </>
                         )}
                       </button>
@@ -1434,15 +1441,29 @@ export default function GamePage() {
                         </div>
                         <div className="quest-stat">
                           <span className="quest-stat__label">Reward:</span>
-                          <span className="quest-stat__value">2-15 CHUNK</span>
+                          <span className="quest-stat__value flex items-center gap-1">
+                            <img
+                              alt="chunk"
+                              className="w-3 h-3"
+                              src="https://ik.imagekit.io/huubao/chunk_coin.png"
+                            />
+                            2-15 CHUNK
+                          </span>
                         </div>
                         <div className="quest-stat">
                           <span className="quest-stat__label">Cost:</span>
-                          <span className="quest-stat__value quest-stat__value--cost">5 CHUNK</span>
+                          <span className="quest-stat__value quest-stat__value--cost flex items-center gap-1">
+                            <img
+                              alt="chunk"
+                              className="w-3 h-3"
+                              src="https://ik.imagekit.io/huubao/chunk_coin.png"
+                            />
+                            5 CHUNK
+                          </span>
                         </div>
                       </div>
                       <button
-                        className="game-btn game-btn--quest game-btn--quest-premium"
+                        className="game-btn game-btn--quest game-btn--quest-premium text-nowrap flex flex-col"
                         onClick={() => handlePlayOnChain("v2")}
                         disabled={isWalletBusy || !account?.address || characterDailyPlays >= 3}
                       >
@@ -1452,7 +1473,15 @@ export default function GamePage() {
                           "Daily Limit Reached"
                         ) : (
                           <>
-                            <Play size={14} /> Accept Premium Quest (5 CHUNK)
+                            <div className="flex items-center gap-1"><Play size={14} /> Premium Quest</div>
+
+                            <div className="flex items-center gap-1"> (
+                              <img
+                                alt="chunk"
+                                className="w-3 h-3 inline-block"
+                                src="https://ik.imagekit.io/huubao/chunk_coin.png"
+                              />
+                              5 CHUNK)</div>
                           </>
                         )}
                       </button>

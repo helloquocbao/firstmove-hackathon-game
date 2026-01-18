@@ -74,6 +74,24 @@ function truncateAddress(address: string, startLen = 6, endLen = 4): string {
   return `${address.slice(0, startLen)}...${address.slice(-endLen)}`;
 }
 
+// Helper function to get status class based on message content
+function getStatusClass(message: string): string {
+  const lower = message.toLowerCase();
+  if (lower.includes("✅") || lower.includes("success") || lower.includes("complete") || lower.includes("confirmed")) {
+    return "marketplace-status marketplace-status--success";
+  }
+  if (lower.includes("failed") || lower.includes("error") || lower.includes("❌") || lower.includes("cannot") || lower.includes("no ")) {
+    return "marketplace-status marketplace-status--error";
+  }
+  if (lower.includes("please") || lower.includes("must") || lower.includes("warning") || lower.includes("price")) {
+    return "marketplace-status marketplace-status--warning";
+  }
+  if (lower.includes("...") || lower.includes("loading") || lower.includes("submitting") || lower.includes("syncing") || lower.includes("preparing") || lower.includes("waiting")) {
+    return "marketplace-status marketplace-status--loading";
+  }
+  return "marketplace-status";
+}
+
 export default function Marketplace() {
   const account = useCurrentAccount();
   const { mutateAsync: signAndExecute, isPending } =
@@ -548,10 +566,10 @@ export default function Marketplace() {
         {/* Navigation */}
         <header className="marketplace-nav">
           <Link to="/" className="brand">
-            <div className="brand__mark">CW</div>
+            <img src="https://ik.imagekit.io/huubao/chunk_coin.png" alt="logo" className="w-12 h-12" />
             <div>
               <div className="brand__name">Chunk World</div>
-              <div className="brand__tag">Marketplace</div>
+              <div className="brand__tag">Sky Adventures on Sui</div>
             </div>
           </Link>
 
@@ -702,7 +720,12 @@ export default function Marketplace() {
                 <div className="marketplace-payout-card__balance-label">
                   Pending proceeds
                 </div>
-                <div className="marketplace-payout-card__balance-value">
+                <div className="marketplace-payout-card__balance-value flex items-center">
+                  <img
+                    alt="chunk"
+                    className="inline-block w-5 h-5 mr-1"
+                    src="https://ik.imagekit.io/huubao/chunk_coin.png"
+                  />
                   {pendingProceeds} CHUNK
                 </div>
                 <div className="marketplace-payout-card__balance-meta">
@@ -782,7 +805,7 @@ export default function Marketplace() {
                   </button>
                 </div>
                 <button
-                  className="btn--primary"
+                  className="btn--primary flex items-center justify-center gap-2"
                   onClick={handleWithdrawProceeds}
                   disabled={isWithdrawing || isPending || pendingProceeds === 0}
                 >
@@ -797,7 +820,7 @@ export default function Marketplace() {
                   )}
                 </button>
                 {withdrawStatus && (
-                  <div className="marketplace-status marketplace-status--neutral">
+                  <div className={getStatusClass(withdrawStatus)}>
                     {withdrawStatus}
                   </div>
                 )}
@@ -833,8 +856,15 @@ export default function Marketplace() {
                           {truncateAddress(sale.chunkId, 8, 6)}
                         </span>
                       </div>
-                      <div className="marketplace-payout-feed__item-meta">
-                        <span>{sale.price} CHUNK</span>
+                      <div className="marketplace-payout-feed__item-meta flex items-center">
+                        <span className="flex items-center gap-1">
+                          <img
+                            alt="chunk"
+                            className="w-3 h-3"
+                            src="https://ik.imagekit.io/huubao/chunk_coin.png"
+                          />
+                          {sale.price} CHUNK
+                        </span>
                         <span>Buyer: {truncateAddress(sale.buyer, 6, 4)}</span>
                       </div>
                     </div>
@@ -880,7 +910,7 @@ export default function Marketplace() {
               </div>
 
               {listingStatus && (
-                <div className="marketplace-status">{listingStatus}</div>
+                <div className={getStatusClass(listingStatus)}>{listingStatus}</div>
               )}
 
               <div className="marketplace-modal__body">
@@ -949,9 +979,9 @@ export default function Marketplace() {
                               />
                               <button
                                 className={
-                                  listedChunkIds.has(chunk.chunkId)
+                                  `${listedChunkIds.has(chunk.chunkId)
                                     ? "btn--secondary"
-                                    : "btn--primary"
+                                    : "btn--primary"} flex items-center justify-center gap-2`
                                 }
                                 onClick={() => handleListChunk(chunk)}
                                 disabled={
@@ -1033,7 +1063,7 @@ export default function Marketplace() {
             </div>
           </div>
 
-          {status && <div className="marketplace-status">{status}</div>}
+          {status && <div className={getStatusClass(status)}>{status}</div>}
 
           {hasListings ? (
             <div className="marketplace-grid marketplace-grid--listings">
@@ -1086,13 +1116,18 @@ export default function Marketplace() {
                       <span className="marketplace-listing-card__price-label">
                         Price
                       </span>
-                      <span className="marketplace-listing-card__price-value">
+                      <span className="marketplace-listing-card__price-value flex items-center gap-1">
+                        <img
+                          alt="chunk"
+                          className="w-4 h-4"
+                          src="https://ik.imagekit.io/huubao/chunk_coin.png"
+                        />
                         {listing.price} CHUNK
                       </span>
                     </div>
                     {listing.seller === account?.address ? (
                       <button
-                        className="btn--secondary"
+                        className="btn--secondary flex items-center justify-center gap-2"
                         onClick={() => handleDelist(listing)}
                         disabled={isPending}
                       >
@@ -1108,7 +1143,7 @@ export default function Marketplace() {
                       </button>
                     ) : (
                       <button
-                        className="btn--primary"
+                        className="btn--primary flex items-center justify-center gap-2"
                         onClick={() => handleBuy(listing)}
                         disabled={isPending}
                       >

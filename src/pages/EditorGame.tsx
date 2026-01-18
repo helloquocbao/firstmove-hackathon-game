@@ -90,7 +90,7 @@ export default function EditorGame() {
 
   // Compute current chunk price for UI display
   const claimChunkPrice =
-    (loadedChunks ?? 0) < 20 ? (loadedChunks ?? 0) * 5 : 95;
+    (loadedChunks ?? 0) < 20 ? (loadedChunks ?? 0) * 5 : 100;
 
   // World creation params
   const [worldName, setWorldName] = useState<string>("");
@@ -916,9 +916,9 @@ export default function EditorGame() {
 
     // Calculate chunk price:
     // - If chunks < 20: fee = chunks * 5 (chunk 0 = free, chunk 1 = 5, ...)
-    // - If chunks >= 20: fee = 95 (fixed)
+    // - From chunk 21 onwards (index >= 20): fee = 100 (fixed)
     const currentChunkCount = loadedChunks ?? 0;
-    const chunkPrice = currentChunkCount < 20 ? currentChunkCount * 5 : 95;
+    const chunkPrice = currentChunkCount < 20 ? currentChunkCount * 5 : 100;
 
     // Check if user has enough coins before proceeding
     const coins = await suiClient.getCoins({
@@ -1036,8 +1036,10 @@ export default function EditorGame() {
           ],
         });
       },
-      () => {
-        setNotice("Chunk saved on-chain.");
+      async () => {
+        setNotice("Tiles saved! Now capturing and uploading image...");
+        // After tiles saved, capture and upload image
+        await captureAndUploadChunkImage();
       },
     );
   }
@@ -1268,10 +1270,10 @@ export default function EditorGame() {
       <div className="editor-shell">
         <header className="editor-nav">
           <Link to="/" className="brand">
-            <div className="brand__mark">CW</div>
+            <img src="https://ik.imagekit.io/huubao/chunk_coin.png" alt="logo" className="w-12 h-12" />
             <div>
               <div className="brand__name">Chunk World</div>
-              <div className="brand__tag">Map Editor</div>
+              <div className="brand__tag">Sky Adventures on Sui</div>
             </div>
           </Link>
 
@@ -1917,14 +1919,7 @@ export default function EditorGame() {
                   onClick={saveActiveChunkOnChain}
                   disabled={isBusy || !isConnected || !canSaveActiveChunk}
                 >
-                  {busyAction === "Save chunk" ? "Saving..." : "Save chunk"}
-                </button>
-                <button
-                  className="btn btn--dark"
-                  onClick={captureAndUploadChunkImage}
-                  disabled={isUploading || !isConnected}
-                >
-                  {isUploading ? "Uploading..." : "Update Image"}
+                  {busyAction === "Save chunk" || isUploading ? "Saving..." : "Save Chunk"}
                 </button>
                 <button className="btn btn--outline" onClick={closeChunkModal}>
                   Cancel

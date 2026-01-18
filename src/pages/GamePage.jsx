@@ -15,7 +15,7 @@ import {
   WORLD_REGISTRY_ID,
 } from "../chain/config";
 import { suiClient } from "../chain/suiClient";
-import { startGame } from "../game/start";
+import { startGame, resetGame } from "../game/start";
 import {
   isWalkableTile,
   normalizeTileId,
@@ -166,7 +166,12 @@ export default function GamePage() {
     return () => window.removeEventListener("game:difficulty-update", handler);
   }, []);
 
-
+  // Cleanup game state when component unmounts (navigating away)
+  useEffect(() => {
+    return () => {
+      resetGame();
+    };
+  }, []);
 
   useEffect(() => {
     void (async () => {
@@ -1560,12 +1565,6 @@ export default function GamePage() {
                 <div className="game-info__card">
                   <span>Difficulty</span>
                   <span>{difficultyInfo.effectiveDifficulty.toFixed(1)}/9</span>
-                </div>
-                <div className="game-info__card">
-                  <span>Enemies</span>
-                  <span>
-                    {difficultyInfo.currentEnemyCount}/{difficultyInfo.targetEnemyCount}
-                  </span>
                 </div>
               </div>
             </aside>

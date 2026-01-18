@@ -1925,7 +1925,7 @@ export default function EditorGame() {
                   Cancel
                 </button>
               </div>
-              {isUploading && <div className="panel__error">{isUploading}</div>}
+              {/* {isUploading && <div className="panel__error">{isUploading}</div>} */}
             </div>
           </div>
         )}

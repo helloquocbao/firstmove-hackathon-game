@@ -1,5 +1,11 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { Transaction } from "@mysten/sui/transactions";
+import {
+  useCurrentAccount,
+  useSignAndExecuteTransaction,
+} from "@mysten/dapp-kit";
+import { REWARD_VAULT_ID, PACKAGE_ID } from "../chain/config";
 import { WalletHeader } from "../components";
 import "./LandingPage.css";
 
@@ -49,6 +55,35 @@ const gameFeatures = [
 ];
 
 export default function LandingPage() {
+  const account = useCurrentAccount();
+  const { mutateAsync: signAndExecute, isPending: isClaiming } =
+    useSignAndExecuteTransaction();
+  const [faucetStatus, setFaucetStatus] = useState("");
+
+  async function handleFaucet(amount = 50) {
+    if (!account?.address) {
+      setFaucetStatus("Connect wallet to claim faucet.");
+      return;
+    }
+    if (!REWARD_VAULT_ID || !PACKAGE_ID) {
+      setFaucetStatus("Missing REWARD_VAULT_ID or PACKAGE_ID.");
+      return;
+    }
+    try {
+      setFaucetStatus("Requesting faucet...");
+      const tx = new Transaction();
+      tx.moveCall({
+        target: `${PACKAGE_ID}::reward_coin::faucet`,
+        arguments: [tx.object(REWARD_VAULT_ID), tx.pure.u64(amount)],
+      });
+      await signAndExecute({ transaction: tx });
+      setFaucetStatus(`Received ${amount} CHUNK.`);
+    } catch (error) {
+      console.error("Faucet failed", error);
+      setFaucetStatus("Faucet failed. Check console.");
+    }
+  }
+
   return (
     <div className="landing">
       <div className="landing__bg">
@@ -210,7 +245,15 @@ export default function LandingPage() {
               <Link className="btn btn--ghost" to="/editor">
                 Create Maps
               </Link>
+              <button
+                className="btn btn--solid"
+                onClick={() => handleFaucet(50)}
+                disabled={isClaiming}
+              >
+                {isClaiming ? "Claiming..." : "Faucet 50 CHUNK"}
+              </button>
             </div>
+            {faucetStatus && <p className="cta__note">{faucetStatus}</p>}
           </div>
         </section>
 

@@ -19,6 +19,7 @@ import {
 import { soundManager } from "./soundManager";
 
 let started = false;
+let kaboomInstance: ReturnType<typeof kaboom> | null = null;
 const TILE = 32;
 const CHUNK_SIZE = 5;
 const PLAY_STATE_KEY = "PLAY_STATE";
@@ -35,18 +36,45 @@ type GameMapData = {
   chunkCount?: number; // Number of chunks
 };
 
+// Reset game state - call this when unmounting GamePage component
+export function resetGame() {
+  if (kaboomInstance) {
+    try {
+      // Clean up kaboom instance
+      kaboomInstance.quit();
+    } catch (e) {
+      console.warn("Error cleaning up kaboom:", e);
+    }
+    kaboomInstance = null;
+  }
+  started = false;
+  stopEnemyMaintainer();
+}
+
 export function startGame(mapData?: GameMapData) {
-  if (started) {
+  // If canvas doesn't exist, don't start (component not mounted)
+  const canvas = document.getElementById("game") as HTMLCanvasElement;
+  if (!canvas) {
+    console.warn("Canvas element not found, skipping game start");
+    return;
+  }
+
+  if (started && kaboomInstance) {
     if (mapData) {
       console.log("Restarting game with new map data", mapData);
       go("game", { mapData });
     }
     return;
   }
+  
+  // Reset if started but no kaboom instance (stale state)
+  if (started && !kaboomInstance) {
+    started = false;
+  }
+  
   started = true;
 
   // Get actual viewport size for fullscreen
-  const canvas = document.getElementById("game") as HTMLCanvasElement;
   const initialWidth = window.innerWidth;
   const initialHeight = window.innerHeight;
 
@@ -59,6 +87,9 @@ export function startGame(mapData?: GameMapData) {
     scale: 1,
     crisp: true,
   });
+  
+  // Store instance for cleanup
+  kaboomInstance = k;
 
   // Handle window resize to keep game fullscreen
   window.addEventListener("resize", () => {
@@ -128,6 +159,14 @@ export function startGame(mapData?: GameMapData) {
   });
   
   loadSprite("chest", "/sprites/rewards/chest_1.png");
+  
+  // Key animation: 24 frames in horizontal row
+  loadSprite("key", "/rewards/key_animation.png", {
+    sliceX: 24,
+    anims: {
+      spin: { from: 0, to: 23, speed: 12, loop: true },
+    },
+  });
 
   /* ================= MAP ================= */
 
@@ -1255,19 +1294,12 @@ export function startGame(mapData?: GameMapData) {
         target.y * tileSize + tileSize / 2,
       );
       const keyObj = add([
-        rect(tileSize * 0.6, tileSize * 0.6),
+        sprite("key", { anim: "spin" }),
         pos(keyPos),
-        area(),
+        area({ shape: new Rect(vec2(0), tileSize * 0.8, tileSize * 0.8) }),
         anchor("center"),
-        color(250, 210, 72),
+        scale(1.5),
         "key",
-      ]);
-      // Key icon/text
-      const label = add([
-        text("KEY", { size: 8 }),
-        pos(keyPos),
-        anchor("center"),
-        color(0, 0, 0),
       ]);
       
       let keyFound = false;
@@ -1275,7 +1307,6 @@ export function startGame(mapData?: GameMapData) {
         if (keyFound) return;
         keyFound = true;
         keyObj.destroy();
-        label.destroy();
         markKeyFound(target, pId);
       });
     }

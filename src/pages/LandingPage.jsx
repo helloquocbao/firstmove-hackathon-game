@@ -35,8 +35,8 @@ const gameFeatures = [
       "WASD movement, combat system. Explore worlds built by the community.",
   },
   {
-    icon: "💎",
-    title: "NFT Rewards",
+    icon: <img src="https://ik.imagekit.io/huubao/chunk_coin.png" alt="logo" className="w-12 h-12 mt-3" />,
+    title: "Token Rewards",
     description:
       "Find hidden keys, claim CHUNK tokens, and earn while you play.",
   },
@@ -184,7 +184,7 @@ export default function LandingPage() {
           <div className="features__grid">
             {gameFeatures.map((feature) => (
               <div key={feature.title} className="feature-card">
-                <div className="feature-card__icon">{feature.icon}</div>
+                <div className="feature-card__icon flex justify-center">{feature.icon}</div>
                 <div className="feature-card__title">{feature.title}</div>
                 <div className="feature-card__desc">{feature.description}</div>
               </div>

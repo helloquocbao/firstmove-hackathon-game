@@ -1049,7 +1049,7 @@
   justify-content: center;
   background: rgb(10, 25, 41);
   backdrop-filter: blur(8px);
-  z-index: 100;
+  z-index: 999;
   border-radius: inherit;
 }
 

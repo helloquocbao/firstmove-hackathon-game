@@ -1,108 +1,56 @@
-# Chunk Adventure - Play & Claim Flow
+# Chunk Adventure - Play & Claim Flow (code hi?n t?i)
 
-## 1. Tổng quan
+## T?ng quan
+- Kh�ng c�n hash/key d? claim. On-chain luu `PlayTicket { player, policy_id=BCS(play_id), min_reward, max_reward }`.
+- Gi?i h?n choi theo epoch: `play_v1` (free) t?i da 2 l?n/ng�y; `play_v2` (paid) t?i da 3 l?n/ng�y.
+- Reward coin du?c reserve khi play; claim r�t coin v� tang `power/potential` theo d? kh� world.
 
-Luồng play/claim sử dụng key bảo mật, chỉ lưu local, blockchain chỉ lưu hash (seal).  
-Nếu mất key (chưa claim), không thể lấy lại reward.
+## Flow play
+1. Ch?n nh�n v?t (ph?i c� `power >= world.required_power`).
+2. G?i:
+   - `play_v1(world, vault, character)`  
+     - Kh�ng ph�, reserve `MIN_REWARD` (2). Gi?i h?n 2 l?n/epoch (`tx_context::epoch`).
+   - `play_v2(world, vault, character, fee_coin)`  
+     - Tr? ph� `PLAY_FEE` (5), reserve `MAX_REWARD` (15). Gi?i h?n 3 l?n/epoch.
+3. Contract:
+   - Reset b? d?m daily khi sang epoch m?i.
+   - Tang `world.next_play_id`, t?o `policy_id = bcs::to_bytes(play_id)`.
+   - Luu `PlayTicket` v�o DF `PlayKey { id: play_id }`.
+   - Emit `PlayCreatedEvent { play_id, min_reward, max_reward, creator }`.
 
----
-
-## 2. Flow chi tiết
-
-### A. Play (Bắt đầu chơi)
-
-1. **FE sinh key ngẫu nhiên** (16 bytes), hash thành `seal`.
-2. **Gửi transaction** gọi `play_v1` hoặc `play_v2`:
-   - Tham số: `world`, `reward_vault`, `character`, (coin nếu v2), `seal`
-3. **Contract tạo Play event**:
-   - Lưu `play_id`, `creator`, `seal`, `world_id`, min/max reward...
-4. **FE lưu key gốc (keyHex) vào localStorage** cùng playId, worldId.
-
----
-
-### B. Tìm key trong game
-
-- FE ẩn key tại 1 tile ngẫu nhiên trên map.
-- User phải điều khiển nhân vật tìm đúng tile để "nhặt" key.
-- Khi nhặt key, FE set `isKeyFound = true`.
-
----
-
-### C. Claim reward
-
-1. User bấm "Claim reward":
-   - FE lấy lại keyHex từ localStorage.
-   - Gửi transaction gọi `claim_reward`:
-     - Tham số: `world`, `reward_vault`, `random_object`, `play_id`, `key`
-2. **Contract kiểm tra**:
-   - Hash(key) == seal đã lưu?
-     - Đúng: phát thưởng, emit `RewardClaimedEvent`.
-     - Sai: reject.
-
----
-
-### D. Khôi phục session
-
-- Nếu reload/lỗi, FE lấy lại playId, keyHex từ localStorage.
-- Nếu đổi máy, user phải nhập lại playId + keyHex đã backup.
-- FE có thể fetch danh sách play chưa claim từ on-chain (qua event), nhưng **không thể lấy lại key nếu mất**.
-
----
-
-### E. Kiểm tra đã claim chưa
-
-- FE query event `RewardClaimedEvent` với playId để biết đã claim chưa.
-
----
-
-## 3. Các hàm chính trong FE
-
-- **handlePlayOnChain**: Sinh key, gửi play tx, lưu key vào localStorage.
-- **handleClaimOnChain**: Lấy key từ localStorage, gửi claim tx.
-- **fetchUnclaimedPlays**: Lấy danh sách play chưa claim từ on-chain.
-- **retryFetchPlayId**: Lấy lại playId nếu tx chưa được index.
-- **Restore Session Modal**: Cho phép nhập lại playId + keyHex nếu đổi máy.
-
----
-
-## 4. Lưu ý bảo mật
-
-- Key chỉ lưu local, blockchain chỉ lưu hash.
-- Mất key = mất quyền claim vĩnh viễn.
-- Nên hướng dẫn user backup key khi play.
-
----
-
-## 5. Flow diagram
-
+### So d? play/claim nhanh
 ```mermaid
-sequenceDiagram
-    participant User
-    participant FE
-    participant MoveContract
-
-    User->>FE: Bấm "Start Play"
-    FE->>FE: Sinh key, hash seal
-    FE->>MoveContract: Gửi play_v1/v2(seal)
-    MoveContract-->>FE: Emit PlayCreatedEvent (play_id, seal)
-    FE->>FE: Lưu keyHex, playId vào localStorage
-
-    User->>FE: Tìm key trong game
-    FE->>FE: isKeyFound = true
-
-    User->>FE: Bấm "Claim reward"
-    FE->>MoveContract: claim_reward(play_id, key)
-    MoveContract->>MoveContract: Kiểm tra hash(key) == seal
-    alt Đúng
-        MoveContract-->>FE: Emit RewardClaimedEvent
-    else Sai
-        MoveContract-->>FE: Reject
-    end
+flowchart LR
+    PLAYBTN[Player: Play (v1/v2)] --> CHECKS[Check power + daily limit]
+    CHECKS --> RESERVE[Reserve reward coin]
+    RESERVE --> TICKET[Create PlayTicket + policy_id = BCS(play_id)]
+    TICKET --> EVT[PlayCreatedEvent]
+    EVT --> CLAIMBTN[Player nh?n Claim]
+    CLAIMBTN --> CLAIMTX[claim_reward(world, vault, character, randomness, play_id)]
+    CLAIMTX --> REWARD[Random reward in [min,max] + withdraw coin]
+    REWARD --> UPDATE[+power = reward * difficulty; +potential = difficulty]
+    UPDATE --> EMIT[RewardClaimedEvent + CharacterUpdatedEvent]
 ```
 
----
+## Claim reward
+1. FE ch? c?n `play_id` v� `character` (d�ng owner). Kh�ng c?n key.
+2. `claim_reward`:
+   - Ki?m tra play t?n t?i, min/max h?p l?.
+   - Random `reward` trong `[min_reward, max_reward]`.
+   - `unreserve(max_reward)` r?i `withdraw(reward)` t? vault.
+   - Sender ph?i l� `player` c?a ticket (`E_INVALID_SEAL` n?u sai).
+   - C?ng `power += reward * difficulty`, `potential += difficulty`.
+   - Emit `RewardClaimedEvent`, `CharacterUpdatedEvent`.
 
-## 6. Restore session (đổi máy)
+## Seal approve (d�nh cho key server, t�y ch?n)
+- `seal_approve(id: vector<u8>, play_id, world)` ki?m tra:
+  - `PlayTicket` t?n t?i v� `ticket.policy_id == id` (BCS(play_id)).
+  - Sender == `ticket.player`.
+- D�ng d? key server dry-run v� ph�t secret n?u c?n, nhung claim kh�ng y�u c?u seal.
 
-- FE fetch danh sách play chưa claim từ on-chain.
-- User nhập lại keyHex đã backup để claim.
+## Ki?m tra d� claim chua
+- FE query `RewardClaimedEvent` theo `play_id` d? bi?t tr?ng th�i.
+
+## State luu local g?i �
+- `playId`, `worldId` (d? g?i claim sau).
+- Kh�ng c?n luu key/hex n?a.

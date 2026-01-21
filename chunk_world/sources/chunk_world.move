@@ -36,7 +36,7 @@ module chunk_world::world {
 
     /* ================= ERRORS ================= */
 
-    const E_WORLD_ALREADY_CREATED: u64 = 0;
+ 
     const E_INVALID_TILES_LEN: u64 = 1;
     const E_INVALID_TILE_CODE: u64 = 2;
     const E_OUT_OF_BOUNDS: u64 = 3;
@@ -73,7 +73,7 @@ module chunk_world::world {
     /// Registry shared để enforce: chỉ có 1 world trong package này.
     public struct WorldRegistry has key, store {
         id: UID,
-        world_id: Option<ID>,
+        world_ids: vector<ID>, // Lưu nhiều world_id
     }
 
     /* ================= WORLD (SHARED) ================= */
@@ -289,10 +289,10 @@ module chunk_world::world {
         transfer::public_transfer(publisher, admin);
         transfer::public_transfer(disp, admin);
 
-        // 2) Registry shared (enforce chỉ tạo 1 world)
+        // 2) Registry shared (hỗ trợ nhiều world)
         let registry = WorldRegistry {
             id: object::new(ctx),
-            world_id: option::none<ID>(),
+            world_ids: vector[],
         };
         let registry_id = object::uid_to_inner(&registry.id);
         transfer::share_object(registry);
@@ -318,9 +318,7 @@ module chunk_world::world {
         required_power: u64,
         ctx: &mut TxContext
     ) {
-        assert!(!option::is_some(&registry.world_id), E_WORLD_ALREADY_CREATED);
         assert!(difficulty >= 1 && difficulty <= 9, E_INVALID_DIFFICULTY);
-        
         // Kiểm tra tên hợp lệ (1-64 bytes)
         let name_len = string::length(&name);
         assert!(name_len >= 1 && name_len <= 64, E_INVALID_NAME);
@@ -338,11 +336,15 @@ module chunk_world::world {
         };
 
         let world_id = object::uid_to_inner(&world.id);
-        registry.world_id = option::some<ID>(world_id);
+        vector::push_back(&mut registry.world_ids, world_id);
 
         transfer::share_object(world);
 
         event::emit(WorldCreatedEvent { world_id, name, admin });
+    }
+    /// Lấy danh sách world_id
+    public fun get_world_ids(registry: &WorldRegistry): &vector<ID> {
+        &registry.world_ids
     }
 
     /* ================= USER: CREATE CHARACTER ================= */

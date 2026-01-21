@@ -5,8 +5,7 @@ import {
   useSignAndExecuteTransaction,
 } from "@mysten/dapp-kit";
 import { Transaction } from "@mysten/sui/transactions";
-import { sha3_256 } from "@noble/hashes/sha3";
-import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
+import { bcs } from "@mysten/sui/bcs";
 import {
   PACKAGE_ID,
   RANDOM_OBJECT_ID,
@@ -44,7 +43,7 @@ export default function GamePage() {
   const [loadedChunks, setLoadedChunks] = useState(null);
   const [rewardBalance, setRewardBalance] = useState("0");
   const [playId, setPlayId] = useState("");
-  const [playKeyHex, setPlayKeyHex] = useState("");
+  const [policyIdHex, setPolicyIdHex] = useState("");
   const [playNotice, setPlayNotice] = useState("");
   const [playError, setPlayError] = useState("");
   const [claimError, setClaimError] = useState("");
@@ -86,7 +85,6 @@ export default function GamePage() {
   // Restore session modal (for switching devices)
   const [showRestoreModal, setShowRestoreModal] = useState(false);
   const [restorePlayId, setRestorePlayId] = useState("");
-  const [restoreKeyHex, setRestoreKeyHex] = useState("");
   const [restoreWorldId, setRestoreWorldId] = useState("");
   const [unclaimedPlays, setUnclaimedPlays] = useState([]); // List of unclaimed plays from chain
   const [isFetchingUnclaimed, setIsFetchingUnclaimed] = useState(false);
@@ -97,8 +95,8 @@ export default function GamePage() {
     effectiveDifficulty: 1,
     targetEnemyCount: 0,
     currentEnemyCount: 0,
-    networkStatus: "⚪ Loading...",
-    validatorStatus: "⚪ Loading...",
+    networkStatus: "ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Âª Loading...",
+    validatorStatus: "ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Âª Loading...",
   });
   const [respawnCountdown, setRespawnCountdown] = useState(null);
 
@@ -107,15 +105,20 @@ export default function GamePage() {
     const target = loadPlayTarget();
     if (stored) {
       setPlayId(stored.playId);
-      setPlayKeyHex(stored.keyHex);
+      const nextPolicyHex =
+        stored.policyIdHex ||
+        (stored.playId && stored.playId !== "pending"
+          ? derivePolicyIdHex(stored.playId)
+          : "");
+      setPolicyIdHex(nextPolicyHex);
       // Notify user about restored session
       if (stored.playId === "pending") {
         setPlayNotice(
-          `⏳ Transaction pending, waiting for chain to index. Click "Retry Fetch" to recover Play ID.`
+          `ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€šÃ‚Â³ Transaction pending, waiting for chain to index. Click "Retry Fetch" to recover Play ID.`
         );
       } else {
         setPlayNotice(
-          `🔄 Restored pending session (Play ID: ${stored.playId}). Find the key to claim reward!`
+          `Restored pending session (Play ID: ${stored.playId}). Use the Seal policy ID to request approval.`
         );
       }
     }
@@ -157,8 +160,8 @@ export default function GamePage() {
           effectiveDifficulty: info.effectiveDifficulty ?? 1,
           targetEnemyCount: info.targetEnemyCount ?? 0,
           currentEnemyCount: info.currentEnemyCount ?? 0,
-          networkStatus: info.networkStatus ?? "⚪ Unknown",
-          validatorStatus: info.validatorStatus ?? "⚪ Unknown",
+          networkStatus: info.networkStatus ?? "ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Âª Unknown",
+          validatorStatus: info.validatorStatus ?? "ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Âª Unknown",
         });
       }
     };
@@ -227,6 +230,11 @@ export default function GamePage() {
   }
 
   const isWalletBusy = isPending || isPlayBusy || isClaimBusy;
+  const currentPolicyHex =
+    policyIdHex || (playId && playId !== "pending" ? derivePolicyIdHex(playId) : "");
+  const restorePolicyPreview = restorePlayId
+    ? derivePolicyIdHex(restorePlayId)
+    : "";
 
   async function loadWorldId() {
     setWorldListError("");
@@ -360,6 +368,18 @@ export default function GamePage() {
     return coins.data.find((coin) => BigInt(coin.balance) >= PLAY_FEE) ?? null;
   }
 
+  function derivePolicyIdHex(nextPlayId) {
+    try {
+      const bytes = bcs.ser("u64", BigInt(nextPlayId)).toBytes();
+      return Array.from(bytes)
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+    } catch (error) {
+      console.error("Failed to derive policy id", error);
+      return "";
+    }
+  }
+
   function storePlayState(nextState) {
     localStorage.setItem(PLAY_STATE_KEY, JSON.stringify(nextState));
   }
@@ -384,7 +404,7 @@ export default function GamePage() {
   function resetPlayState(nextNotice) {
     clearPlayState();
     setPlayId("");
-    setPlayKeyHex("");
+    setPolicyIdHex("");
     setIsKeyFound(false);
     if (nextNotice) {
       setPlayNotice(nextNotice);
@@ -398,7 +418,7 @@ export default function GamePage() {
       return;
     }
 
-    setPlayNotice("🔄 Retrying to fetch play ID from chain...");
+    setPlayNotice("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾ Retrying to fetch play ID from chain...");
 
     try {
       const txBlock = await suiClient.getTransactionBlock({
@@ -417,15 +437,18 @@ export default function GamePage() {
             : "";
 
       if (nextPlayId) {
+        const policyHex = derivePolicyIdHex(nextPlayId);
         storePlayState({
           ...stored,
           playId: nextPlayId,
+          policyIdHex: policyHex,
         });
         setPlayId(nextPlayId);
+        setPolicyIdHex(policyHex);
         setPlayNotice(
-          `✅ Recovered Play ID: ${nextPlayId}. Find the key to claim!`
+          `✅ Recovered Play ID: ${nextPlayId}. Policy ID ready for Seal.`
         );
-      } else {
+      } else {      } else {
         setPlayError("Still couldn't fetch play_id. Try again later.");
       }
     } catch (error) {
@@ -436,13 +459,13 @@ export default function GamePage() {
     }
   }
 
-  // Fetch unclaimed plays của user từ on-chain events
+  // Fetch unclaimed plays cÃƒÆ’Ã‚Â¡Ãƒâ€šÃ‚Â»Ãƒâ€šÃ‚Â§a user tÃƒÆ’Ã‚Â¡Ãƒâ€šÃ‚Â»Ãƒâ€šÃ‚Â« on-chain events
   async function fetchUnclaimedPlays() {
     if (!account?.address || !PACKAGE_ID) return;
 
     setIsFetchingUnclaimed(true);
     try {
-      // 1. Fetch tất cả PlayCreatedEvent của user
+      // 1. Fetch tÃƒÆ’Ã‚Â¡Ãƒâ€šÃ‚ÂºÃƒâ€šÃ‚Â¥t cÃƒÆ’Ã‚Â¡Ãƒâ€šÃ‚ÂºÃƒâ€šÃ‚Â£ PlayCreatedEvent cÃƒÆ’Ã‚Â¡Ãƒâ€šÃ‚Â»Ãƒâ€šÃ‚Â§a user
       const playEventType = `${PACKAGE_ID}::world::PlayCreatedEvent`;
       const claimEventType = `${PACKAGE_ID}::world::RewardClaimedEvent`;
 
@@ -510,10 +533,10 @@ export default function GamePage() {
       setUnclaimedPlays(unclaimed);
 
       if (unclaimed.length === 0) {
-        setPlayNotice("✅ Không có play nào chưa claim!");
+        setPlayNotice("ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ KhÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â´ng cÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³ play nÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â o chÃƒÆ’Ã¢â‚¬Â Ãƒâ€šÃ‚Â°a claim!");
       } else {
         setPlayNotice(
-          `📋 Tìm thấy ${unclaimed.length} play chưa claim. Chọn để restore.`
+          `ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ TÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¬m thÃƒÆ’Ã‚Â¡Ãƒâ€šÃ‚ÂºÃƒâ€šÃ‚Â¥y ${unclaimed.length} play chÃƒÆ’Ã¢â‚¬Â Ãƒâ€šÃ‚Â°a claim. ChÃƒÆ’Ã‚Â¡Ãƒâ€šÃ‚Â»Ãƒâ€šÃ‚Ân ÃƒÆ’Ã¢â‚¬Å¾ÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“ÃƒÆ’Ã‚Â¡Ãƒâ€šÃ‚Â»Ãƒâ€ Ã¢â‚¬â„¢ restore.`
         );
       }
     } catch (error) {
@@ -796,12 +819,6 @@ export default function GamePage() {
       }
     }
 
-    const keyBytes = new Uint8Array(16);
-    crypto.getRandomValues(keyBytes);
-    const sealBytes = sha3_256(keyBytes);
-    const sealVector = Array.from(sealBytes);
-    const keyHex = bytesToHex(keyBytes);
-
     setIsPlayBusy(true);
     try {
       const tx = new Transaction();
@@ -814,7 +831,6 @@ export default function GamePage() {
             tx.object(worldId),
             tx.object(REWARD_VAULT_ID),
             tx.object(characterId),
-            tx.pure.vector("u8", sealVector),
           ],
         });
       } else {
@@ -826,7 +842,6 @@ export default function GamePage() {
             tx.object(REWARD_VAULT_ID),
             tx.object(characterId),
             tx.object(playableCoin.coinObjectId),
-            tx.pure.vector("u8", sealVector),
           ],
         });
       }
@@ -834,11 +849,11 @@ export default function GamePage() {
       const result = await signAndExecute({ transaction: tx });
       console.log("result", result);
 
-      // Retry logic: đợi transaction được index trên chain
+      // Retry logic: Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚Â»Ã‚Â£i transaction Ãƒâ€žÃ¢â‚¬ËœÃƒâ€ Ã‚Â°ÃƒÂ¡Ã‚Â»Ã‚Â£c index trÃƒÆ’Ã‚Âªn chain
       let txBlock = null;
       let retryCount = 0;
       const maxRetries = 5;
-      const retryDelay = 1500; // 1.5 giây
+      const retryDelay = 1500; // 1.5 giÃƒÆ’Ã‚Â¢y
 
       while (retryCount < maxRetries) {
         try {
@@ -860,15 +875,15 @@ export default function GamePage() {
       }
 
       if (!txBlock) {
-        // Fallback: Lưu với keyHex, user có thể verify sau
+        // Fallback: keep digest so we can recover play_id later
         storePlayState({
           playId: "pending",
-          keyHex,
+          policyIdHex: "",
           worldId: worldId,
           found: false,
           digest: result.digest,
         });
-        setPlayKeyHex(keyHex);
+        setPolicyIdHex("");
         setPlayError(
           "Transaction submitted but couldn't fetch details. Please verify claim status later."
         );
@@ -894,6 +909,7 @@ export default function GamePage() {
         return;
       }
 
+      const policyHex = derivePolicyIdHex(nextPlayId);
       const target = pickKeyTarget();
       if (target) {
         storePlayTarget({ ...target, worldId: worldId, found: false });
@@ -904,19 +920,19 @@ export default function GamePage() {
 
       storePlayState({
         playId: nextPlayId,
-        keyHex,
+        policyIdHex: policyHex,
         worldId: worldId,
         found: false,
       });
       setPlayId(nextPlayId);
-      setPlayKeyHex(keyHex);
+      setPolicyIdHex(policyHex);
       setIsKeyFound(false);
       setIsGameStarted(true);
       reloadGameFromStorage();
       setPlayNotice(
         target
-          ? `Key hidden at tile (${target.x}, ${target.y}).`
-          : "Key generated. Load a map to hide it."
+          ? `Seal policy ready. Policy ID (BCS play_id): ${policyHex}. Key hidden at tile (${target.x}, ${target.y}).`
+          : `Seal policy ready. Policy ID (BCS play_id): ${policyHex}. Load a map to hide the key.`
       );
       await loadRewardBalance();
     } catch (error) {
@@ -924,9 +940,7 @@ export default function GamePage() {
     } finally {
       setIsPlayBusy(false);
     }
-  }
-
-  async function handleStartModalAction() {
+  }async function handleStartModalAction() {
     setStartModalError("");
 
     // Default to player mode - auto start off-chain
@@ -989,7 +1003,7 @@ export default function GamePage() {
   function handleStartFresh() {
     clearPlayState();
     setPlayId("");
-    setPlayKeyHex("");
+    setPolicyIdHex("");
     setIsKeyFound(false);
     setShowResumeModal(false);
     setIsGameStarted(true);
@@ -1008,7 +1022,7 @@ export default function GamePage() {
       setClaimError("Missing chain config for claim.");
       return;
     }
-    if (!playId || !playKeyHex) {
+    if (!playId) {
       setClaimError("No active play found.");
       return;
     }
@@ -1022,7 +1036,6 @@ export default function GamePage() {
       return;
     }
 
-    const keyBytes = Array.from(hexToBytes(playKeyHex));
     setIsClaimBusy(true);
     try {
       const tx = new Transaction();
@@ -1034,7 +1047,6 @@ export default function GamePage() {
           tx.object(characterId),
           tx.object(RANDOM_OBJECT_ID),
           tx.pure.u64(BigInt(playId)),
-          tx.pure.vector("u8", keyBytes),
         ],
       });
 
@@ -1291,12 +1303,12 @@ export default function GamePage() {
                 {/* Active Quest Status */}
                 {playId && !isKeyFound && (
                   <div className="quest-active">
-                    <div className="quest-active__header">
+                                        <div className="quest-active__header">
                       <span className="quest-active__badge">ACTIVE</span>
                       <span className="quest-active__id">Quest #{playId}</span>
                     </div>
                     <div className="quest-active__objective">
-                      🗝️ Find the hidden key to claim your reward!
+                      Ã°Å¸â€Â Find the hidden key to unlock claim on this run.
                     </div>
                     <div className="quest-active__info">
                       <div className="quest-info-row">
@@ -1309,25 +1321,27 @@ export default function GamePage() {
                       </div>
                     </div>
                     <div className="quest-backup-key">
-                      <div className="quest-backup-key__label">Backup Key:</div>
+                      <div className="quest-backup-key__label">Seal Policy ID (BCS play_id):</div>
                       <div className="quest-backup-key__value">
-                        <code>{playKeyHex}</code>
+                        <code>{currentPolicyHex}</code>
                         <button
                           className="copy-btn"
                           onClick={() => {
-                            navigator.clipboard.writeText(playKeyHex);
-                            setPlayNotice("Key copied!");
+                            if (currentPolicyHex) {
+                              navigator.clipboard.writeText(currentPolicyHex);
+                              setPlayNotice("Policy ID copied!");
+                            }
                           }}
-                          title="Copy key"
+                          title="Copy policy id"
+                          disabled={!currentPolicyHex}
                         >
                           <Copy size={12} />
                         </button>
                       </div>
                       <div className="quest-backup-key__hint">
-                        Save this key to restore your quest later
+                        Share this policy ID with Seal key server for seal_approve.
                       </div>
-                    </div>
-                    <div className="quest-actions">
+                    </div><div className="quest-actions">
                       {playId === "pending" && (
                         <button
                           className="game-btn game-btn--retry"
@@ -1355,7 +1369,7 @@ export default function GamePage() {
                 {playId && isKeyFound && (
                   <div className="quest-complete">
                     <div className="quest-complete__header">
-                      ✅ Quest Complete!
+                      ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Quest Complete!
                     </div>
                     <div className="quest-complete__message">
                       You found the key! Claim your reward now.
@@ -1365,7 +1379,7 @@ export default function GamePage() {
                       onClick={handleClaimOnChain}
                       disabled={isWalletBusy}
                     >
-                      {isClaimBusy ? "Claiming..." : "🎁 Claim Reward"}
+                      {isClaimBusy ? "Claiming..." : "ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â½Ãƒâ€šÃ‚Â Claim Reward"}
                     </button>
                   </div>
                 )}
@@ -1716,8 +1730,7 @@ export default function GamePage() {
                     {unclaimedPlays.map((play) => (
                       <div
                         key={play.playId}
-                        className={`unclaimed-item ${restorePlayId === play.playId ? "selected" : ""
-                          }`}
+                        className={`unclaimed-item ${restorePlayId === play.playId ? "selected" : ""}`}
                         onClick={() => {
                           setRestorePlayId(play.playId);
                           setRestoreWorldId(play.worldId);
@@ -1730,13 +1743,13 @@ export default function GamePage() {
                       </div>
                     ))}
                     <div className="unclaimed-note">
-                      Note: You still need to enter the backup key from your old device.
+                      Policy ID = BCS(play_id). We auto-derive it below.
                     </div>
                   </div>
                 )}
               </div>
 
-              <div className="restore-divider">hoặc nhập thủ công</div>
+              <div className="restore-divider">hoáº·c nháº­p thá»§ cÃ´ng</div>
 
               <div className="game-field">
                 <label>Play ID</label>
@@ -1748,14 +1761,23 @@ export default function GamePage() {
                 />
               </div>
               <div className="game-field">
-                <label>Key (32 hex characters) - Required</label>
-                <input
-                  type="text"
-                  value={restoreKeyHex}
-                  onChange={(e) => setRestoreKeyHex(e.target.value)}
-                  placeholder="VD: a1b2c3d4e5f6..."
-                  maxLength={32}
-                />
+                <label>Policy ID (auto from Play ID)</label>
+                <div className="quest-backup-key__value" style={{ justifyContent: "space-between" }}>
+                  <code>{restorePolicyPreview || "Enter Play ID to compute"}</code>
+                  <button
+                    className="copy-btn"
+                    onClick={() => {
+                      if (restorePolicyPreview) {
+                        navigator.clipboard.writeText(restorePolicyPreview);
+                        setPlayNotice("Policy ID copied!");
+                      }
+                    }}
+                    title="Copy policy id"
+                    disabled={!restorePolicyPreview}
+                  >
+                    <Copy size={12} />
+                  </button>
+                </div>
               </div>
               <div className="game-field">
                 <label>World ID (optional)</label>
@@ -1777,38 +1799,33 @@ export default function GamePage() {
               <button
                 className="game-btn game-btn--primary"
                 onClick={() => {
-                  if (!restorePlayId || !restoreKeyHex) {
-                    setPlayError("Play ID và Key là bắt buộc!");
+                  if (!restorePlayId) {
+                    setPlayError("Play ID is required!");
                     return;
                   }
-                  if (restoreKeyHex.length !== 32) {
-                    setPlayError("Key phải có đúng 32 ký tự!");
-                    return;
-                  }
+                  const policyHex = derivePolicyIdHex(restorePlayId);
                   storePlayState({
                     playId: restorePlayId,
-                    keyHex: restoreKeyHex,
+                    policyIdHex: policyHex,
                     worldId: restoreWorldId || worldId,
                     found: false,
                   });
                   setPlayId(restorePlayId);
-                  setPlayKeyHex(restoreKeyHex);
+                  setPolicyIdHex(policyHex);
                   setIsKeyFound(false);
                   setShowRestoreModal(false);
                   setPlayNotice(
-                    `Session restored! Play ID: ${restorePlayId}`
+                    `Session restored! Play ID: ${restorePlayId}. Share policy with Seal key server.`
                   );
                 }}
-                disabled={!restorePlayId || !restoreKeyHex}
+                disabled={!restorePlayId}
               >
                 Restore
               </button>
             </div>
           </div>
         </div>
-      )}
-
-      {/* Pre-start Modal */}
+      )}      {/* Pre-start Modal */}
       {showStartModal && (
         <div className="game-modal-overlay game-modal-overlay--start">
           <div className="game-modal">
@@ -1864,7 +1881,7 @@ export default function GamePage() {
                     />
                     <div>
                       <div className="game-start-option__title">
-                        Resume Key
+                        Resume Quest
                       </div>
                       <div className="game-start-option__note">
                         Continue your unclaimed play (#{playId}).

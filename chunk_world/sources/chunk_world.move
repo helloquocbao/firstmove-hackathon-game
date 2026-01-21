@@ -1,7 +1,7 @@
 module chunk_world::world {
 
-    use std::hash;
     use std::string::{Self, String};
+    use sui::bcs;
 
     use sui::balance::{Self, Balance};
     use sui::dynamic_field as df;
@@ -90,7 +90,8 @@ module chunk_world::world {
     }
 
     public struct PlayTicket has store {
-        seal: vector<u8>,
+        player: address,
+        policy_id: vector<u8>, // Seal identity (BCS-encoded play_id)
         min_reward: u64,
         max_reward: u64,
     }
@@ -632,10 +633,8 @@ module chunk_world::world {
         world: &mut WorldMap,
         vault: &mut RewardVault,
         character: &mut CharacterNFT,
-        seal: vector<u8>,
         ctx: & TxContext
     ) {
-        assert!(vector::length(&seal) > 0, E_INVALID_SEAL);
         
         // Kiểm tra character có đủ power để chơi world này
         assert!(character.power >= world.required_power, E_INSUFFICIENT_POWER);
@@ -657,18 +656,23 @@ module chunk_world::world {
 
         let play_id = world.next_play_id;
         world.next_play_id = play_id + 1;
+        let policy_id = bcs::to_bytes(&play_id); // Seal identity = BCS(play_id)
+        let sender = tx_context::sender(ctx);
         df::add(
             &mut world.id,
             PlayKey { id: play_id },
-            PlayTicket { seal, min_reward: MIN_REWARD, max_reward: MIN_REWARD } // reward cố định = MIN_REWARD
+            PlayTicket {
+                player: sender,
+                policy_id,
+                min_reward: MIN_REWARD,
+                max_reward: MIN_REWARD
+            } // reward cố định = MIN_REWARD
         );
 
         let world_id = object::uid_to_inner(&world.id);
-        let sender = tx_context::sender(ctx);
         event::emit(PlayCreatedEvent { world_id, play_id, min_reward: MIN_REWARD, max_reward: MIN_REWARD, creator: sender });
     }
 
-    /// seal = hash::sha3_256(key_bytes) (compute off-chain)
     /// Yêu cầu character có đủ power để tham gia world
     /// Giới hạn 3 lần chơi mỗi epoch (~24h)
      entry fun play_v2(
@@ -676,10 +680,8 @@ module chunk_world::world {
         vault: &mut RewardVault,
         character: &mut CharacterNFT,
         mut fee_coin: Coin<reward_coin::REWARD_COIN>,
-        seal: vector<u8>,
         ctx: &mut TxContext
     ) {
-        assert!(vector::length(&seal) > 0, E_INVALID_SEAL);
         assert!(MAX_REWARD >= MIN_REWARD && MIN_REWARD > 0, E_INVALID_REWARD_RANGE);
         
         // Kiểm tra character có đủ power để chơi world này
@@ -713,10 +715,16 @@ module chunk_world::world {
 
         let play_id = world.next_play_id;
         world.next_play_id = play_id + 1;
+        let policy_id = bcs::to_bytes(&play_id); // Seal identity = BCS(play_id)
         df::add(
             &mut world.id,
             PlayKey { id: play_id },
-            PlayTicket { seal, min_reward: MIN_REWARD, max_reward: MAX_REWARD }
+            PlayTicket {
+                player: sender,
+                policy_id,
+                min_reward: MIN_REWARD,
+                max_reward: MAX_REWARD
+            }
         );
 
         let world_id = object::uid_to_inner(&world.id);
@@ -724,22 +732,18 @@ module chunk_world::world {
     }
 
     /// Claim reward và cộng power/potential vào character
-     entry fun claim_reward(
-        world: &mut WorldMap,
-        vault: &mut RewardVault,
-        character: &mut CharacterNFT,
-        randomness: &random::Random,
+    entry fun claim_reward(
+       world: &mut WorldMap,
+       vault: &mut RewardVault,
+       character: &mut CharacterNFT,
+       randomness: &random::Random,
         play_id: u64,
-        key: vector<u8>,
         ctx: &mut TxContext
     ) {
         assert!(df::exists_(&world.id, PlayKey { id: play_id }), E_PLAY_NOT_FOUND);
-        assert!(vector::length(&key) > 0, E_INVALID_SEAL);
 
-        let PlayTicket { seal, min_reward, max_reward } =
+        let PlayTicket { player, policy_id: _, min_reward, max_reward } =
             df::remove(&mut world.id, PlayKey { id: play_id });
-        let digest = hash::sha3_256(key);
-        assert!(seal == digest, E_INVALID_SEAL);
         assert!(max_reward >= min_reward && min_reward > 0, E_INVALID_REWARD_RANGE);
 
         let mut rng = random::new_generator(randomness, ctx);
@@ -749,6 +753,7 @@ module chunk_world::world {
         let coin = reward_coin::withdraw(vault, reward, ctx);
 
         let recipient = tx_context::sender(ctx);
+        assert!(recipient == player, E_INVALID_SEAL);
         transfer::public_transfer(coin, recipient);
 
         // Cộng power và potential vào character dựa trên difficulty
@@ -774,6 +779,21 @@ module chunk_world::world {
             power: character.power,
             potential: character.potential,
         });
+    }
+
+    /// Seal approval cho key server: identity bytes phải là BCS(play_id).
+    /// Gọi ở chế độ dry_run; abort nếu play_id không tồn tại hoặc sender không phải player.
+     entry fun seal_approve(
+        id: vector<u8>,          // first arg MUST be vector<u8> (Seal SDK)
+        play_id: u64,            // explicit play id to avoid from_bytes
+        world: &WorldMap,
+        ctx: &TxContext
+    ) {
+        assert!(df::exists_(&world.id, PlayKey { id: play_id }), E_PLAY_NOT_FOUND);
+        let ticket: &PlayTicket = df::borrow(&world.id, PlayKey { id: play_id });
+        assert!(ticket.policy_id == id, E_INVALID_SEAL);
+        let sender = tx_context::sender(ctx);
+        assert!(ticket.player == sender, E_INVALID_SEAL);
     }
 
     /* ================= OWNER: EDIT CHUNK ================= */

@@ -94,6 +94,7 @@ module chunk_world::world {
         policy_id: vector<u8>, // Seal identity (BCS-encoded play_id)
         min_reward: u64,
         max_reward: u64,
+        approved: bool,       // true sau khi seal_approve
     }
 
     public struct WorldMap has key, store {
@@ -667,7 +668,8 @@ module chunk_world::world {
                 player: sender,
                 policy_id,
                 min_reward: MIN_REWARD,
-                max_reward: MIN_REWARD
+                max_reward: MIN_REWARD,
+                approved: false
             } // reward cố định = MIN_REWARD
         );
 
@@ -725,7 +727,8 @@ module chunk_world::world {
                 player: sender,
                 policy_id,
                 min_reward: MIN_REWARD,
-                max_reward: MAX_REWARD
+                max_reward: MAX_REWARD,
+                approved: false
             }
         );
 
@@ -744,9 +747,10 @@ module chunk_world::world {
     ) {
         assert!(df::exists_(&world.id, PlayKey { id: play_id }), E_PLAY_NOT_FOUND);
 
-        let PlayTicket { player, policy_id: _, min_reward, max_reward } =
+        let PlayTicket { player, policy_id: _, min_reward, max_reward, approved } =
             df::remove(&mut world.id, PlayKey { id: play_id });
         assert!(max_reward >= min_reward && min_reward > 0, E_INVALID_REWARD_RANGE);
+        assert!(approved, E_INVALID_SEAL);
 
         let mut rng = random::new_generator(randomness, ctx);
         let reward = random::generate_u64_in_range(&mut rng, min_reward, max_reward);
@@ -785,17 +789,18 @@ module chunk_world::world {
 
     /// Seal approval cho key server: identity bytes phải là BCS(play_id).
     /// Gọi ở chế độ dry_run; abort nếu play_id không tồn tại hoặc sender không phải player.
-     entry fun seal_approve(
+    entry fun seal_approve(
         id: vector<u8>,          // first arg MUST be vector<u8> (Seal SDK)
         play_id: u64,            // explicit play id to avoid from_bytes
-        world: &WorldMap,
+        world: &mut WorldMap,
         ctx: &TxContext
     ) {
         assert!(df::exists_(&world.id, PlayKey { id: play_id }), E_PLAY_NOT_FOUND);
-        let ticket: &PlayTicket = df::borrow(&world.id, PlayKey { id: play_id });
+        let ticket: &mut PlayTicket = df::borrow_mut(&mut world.id, PlayKey { id: play_id });
         assert!(ticket.policy_id == id, E_INVALID_SEAL);
         let sender = tx_context::sender(ctx);
         assert!(ticket.player == sender, E_INVALID_SEAL);
+        ticket.approved = true;
     }
 
     /* ================= OWNER: EDIT CHUNK ================= */

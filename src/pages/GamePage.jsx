@@ -380,6 +380,16 @@ export default function GamePage() {
     }
   }
 
+  function hexToBytes(hex) {
+    const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
+    if (clean.length % 2 !== 0) return [];
+    const arr = [];
+    for (let i = 0; i < clean.length; i += 2) {
+      arr.push(parseInt(clean.slice(i, i + 2), 16));
+    }
+    return arr;
+  }
+
   function storePlayState(nextState) {
     localStorage.setItem(PLAY_STATE_KEY, JSON.stringify(nextState));
   }
@@ -1026,8 +1036,14 @@ export default function GamePage() {
       setClaimError("No active play found.");
       return;
     }
+    // Optional gating: still require key found in-game
     if (!isKeyFound) {
       setClaimError("Find the hidden key in game first.");
+      return;
+    }
+
+    if (!policyIdHex) {
+      setClaimError("Missing policy ID for seal approve.");
       return;
     }
 
@@ -1039,6 +1055,17 @@ export default function GamePage() {
     setIsClaimBusy(true);
     try {
       const tx = new Transaction();
+      // Step 1: seal_approve to mark PlayTicket.approved = true
+      const policyBytes = hexToBytes(policyIdHex);
+      tx.moveCall({
+        target: `${PACKAGE_ID}::world::seal_approve`,
+        arguments: [
+          tx.pure.vector("u8", policyBytes),
+          tx.pure.u64(BigInt(playId)),
+          tx.object(worldId),
+        ],
+      });
+      // Step 2: claim_reward
       tx.moveCall({
         target: `${PACKAGE_ID}::world::claim_reward`,
         arguments: [

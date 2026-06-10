@@ -74,31 +74,25 @@ export function startGame(mapData?: GameMapData) {
   
   started = true;
 
-  // Get actual viewport size for fullscreen
-  const initialWidth = window.innerWidth;
-  const initialHeight = window.innerHeight;
+  const initialWidth = canvas.clientWidth || 960;
+  const initialHeight = canvas.clientHeight || 600;
 
   const k = kaboom({
     global: true,
     canvas,
     width: initialWidth,
     height: initialHeight,
-    background: [26, 42, 58],
+    background: [56, 189, 248],
     scale: 1,
     crisp: true,
   });
-  
-  // Store instance for cleanup
+
   kaboomInstance = k;
 
-  // Handle window resize to keep game fullscreen
   window.addEventListener("resize", () => {
-    // Kaboom doesn't have a native resize, but we can update canvas
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    canvas.width = canvas.clientWidth;
+    canvas.height = canvas.clientHeight;
   });
-
-  // debug.inspect = true;
 
   /* ================= SPRITES ================= */
 
@@ -259,13 +253,112 @@ export function startGame(mapData?: GameMapData) {
       add([text("NO MAP FOUND"), pos(center()), anchor("center")]);
       return;
     }
-
     let isGameOver = false;
     const tileSize = resolvedMap.tileSize || TILE;
     const spawnPos = findSpawn(resolvedMap.grid, tileSize);
     drawTiles(resolvedMap.grid, resolvedMap.decoGrid, tileSize);
 
-    /* ================= GOBLIN SYSTEM ================= */
+    // Spawn drifting procedural background clouds
+    const cMapWidth = resolvedMap.grid[0].length * tileSize;
+    const cMapHeight = resolvedMap.grid.length * tileSize;
+    const cloudCount = Math.max(12, Math.floor((cMapWidth * cMapHeight) / 90000));
+    
+    for (let i = 0; i < cloudCount; i++) {
+      const startX = rand(-150, cMapWidth + 150);
+      const startY = rand(-100, cMapHeight + 100);
+      const speed = rand(4, 12);
+      const scaleVal = rand(0.6, 1.4);
+      
+      add([
+        pos(startX, startY),
+        z(-10),
+        "cloud",
+        {
+          update() {
+            this.pos.x += speed * dt();
+            if (this.pos.x > cMapWidth + 150) {
+              this.pos.x = -150;
+              this.pos.y = rand(-100, cMapHeight + 100);
+            }
+          },
+          draw() {
+            // Shadow Layer Offset
+            const shadowOffset = vec2(3 * scaleVal, 4 * scaleVal);
+            const shadowColor = rgb(14, 165, 233); // sky-500 shadow
+            const shadowOpacity = 0.4;
+
+            // Draw shadow circles/rect
+            drawCircle({
+              pos: vec2(0, 0).add(shadowOffset),
+              radius: 18 * scaleVal,
+              color: shadowColor,
+              opacity: shadowOpacity,
+            });
+            drawCircle({
+              pos: vec2(12 * scaleVal, -5 * scaleVal).add(shadowOffset),
+              radius: 24 * scaleVal,
+              color: shadowColor,
+              opacity: shadowOpacity,
+            });
+            drawCircle({
+              pos: vec2(30 * scaleVal, -8 * scaleVal).add(shadowOffset),
+              radius: 20 * scaleVal,
+              color: shadowColor,
+              opacity: shadowOpacity,
+            });
+            drawCircle({
+              pos: vec2(42 * scaleVal, 0).add(shadowOffset),
+              radius: 14 * scaleVal,
+              color: shadowColor,
+              opacity: shadowOpacity,
+            });
+            drawRect({
+              pos: vec2(-8 * scaleVal, 0).add(shadowOffset),
+              width: 65 * scaleVal,
+              height: 8 * scaleVal,
+              color: shadowColor,
+              opacity: shadowOpacity,
+            });
+
+            // Main White Cloud Layer
+            const cloudColor = rgb(255, 255, 255);
+            const cloudOpacity = 0.85;
+
+            drawCircle({
+              pos: vec2(0, 0),
+              radius: 18 * scaleVal,
+              color: cloudColor,
+              opacity: cloudOpacity,
+            });
+            drawCircle({
+              pos: vec2(12 * scaleVal, -5 * scaleVal),
+              radius: 24 * scaleVal,
+              color: cloudColor,
+              opacity: cloudOpacity,
+            });
+            drawCircle({
+              pos: vec2(30 * scaleVal, -8 * scaleVal),
+              radius: 20 * scaleVal,
+              color: cloudColor,
+              opacity: cloudOpacity,
+            });
+            drawCircle({
+              pos: vec2(42 * scaleVal, 0),
+              radius: 14 * scaleVal,
+              color: cloudColor,
+              opacity: cloudOpacity,
+            });
+            drawRect({
+              pos: vec2(-8 * scaleVal, 0),
+              width: 65 * scaleVal,
+              height: 8 * scaleVal,
+              color: cloudColor,
+              opacity: cloudOpacity,
+            });
+          }
+        }
+      ]);
+    }
 
     // Difficulty-based stats (matching enemyMaintainer.ts)
     const DIFFICULTY_STATS: Record<

@@ -10,9 +10,9 @@
   align-items: center;
   gap: 8px;
   padding: 10px 16px;
-  border-radius: 10px;
-  background: rgba(89, 183, 255, 0.1);
-  border: 1px solid rgba(89, 183, 255, 0.3);
+  border-radius: 9999px; /* Pill shape */
+  background: rgba(14, 165, 233, 0.08);
+  border: 1px solid rgba(14, 165, 233, 0.2);
   font-family: var(--font-mono);
 }
 
@@ -24,13 +24,13 @@
 .wallet-header__value {
   font-size: 14px;
   font-weight: 700;
-  color: #59b7ff;
+  color: var(--land-accent-blue, #0ea5e9);
 }
 
 .wallet-header__label {
   font-size: 11px;
   font-weight: 600;
-  color: #7eb8e8;
+  color: var(--land-text-muted, #475569);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -42,9 +42,9 @@
   height: 14px;
   background: linear-gradient(
     90deg,
-    rgba(89, 183, 255, 0.2) 0%,
-    rgba(89, 183, 255, 0.4) 50%,
-    rgba(89, 183, 255, 0.2) 100%
+    rgba(14, 165, 233, 0.1) 0%,
+    rgba(14, 165, 233, 0.25) 50%,
+    rgba(14, 165, 233, 0.1) 100%
   );
   background-size: 200% 100%;
   border-radius: 4px;
@@ -66,24 +66,22 @@
   font-size: 12px !important;
   font-weight: 600 !important;
   text-transform: uppercase !important;
-  letter-spacing: 0.1em !important;
-  padding: 12px 20px !important;
-  border-radius: 10px !important;
-  background: linear-gradient(135deg, #59b7ff, #3d8fd1) !important;
-  border: 2px solid #59b7ff !important;
-  color: #0a1929 !important;
-  box-shadow: 
-    0 4px 20px rgba(89, 183, 255, 0.4),
-    inset 0 2px 0 rgba(255, 255, 255, 0.2) !important;
-  transition: all 0.3s ease !important;
+  letter-spacing: 0.08em !important;
+  padding: 10px 18px !important;
+  border-radius: 9999px !important; /* Pill shape */
+  background: var(--land-text-primary, #0f172a) !important;
+  border: 1px solid var(--land-text-primary, #0f172a) !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 15px rgba(15, 23, 42, 0.1) !important;
+  transition: var(--transition-smooth, all 0.3s ease) !important;
   cursor: pointer !important;
 }
 
 .wallet-header button:hover {
-  transform: translateY(-2px) !important;
-  box-shadow: 
-    0 8px 30px rgba(89, 183, 255, 0.5),
-    inset 0 2px 0 rgba(255, 255, 255, 0.3) !important;
+  transform: translateY(-1px) !important;
+  background: #1e293b !important;
+  border-color: #1e293b !important;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.18) !important;
 }
 
 /* Responsive */

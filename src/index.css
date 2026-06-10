@@ -2,13 +2,13 @@
 
 :root {
   color-scheme: light;
-  --bg: #f7efe2;
-  --ink: #1a1a1a;
-  --muted: #5b5247;
-  --accent: #ff7a18;
-  --accent-2: #2ab3a6;
-  --card: #fff6ea;
-  --stroke: #1a1a1a;
+  --bg: #f0f9ff;
+  --ink: #0f172a;
+  --muted: #475569;
+  --accent: #0ea5e9;
+  --accent-2: #f97316;
+  --card: rgba(255, 255, 255, 0.75);
+  --stroke: rgba(14, 165, 233, 0.15);
   --font-sans: "Space Grotesk", "Segoe UI", sans-serif;
   --font-serif: "Fraunces", "Times New Roman", serif;
   --font-mono: "IBM Plex Mono", "Courier New", monospace;
@@ -40,11 +40,12 @@ button {
 /* Custom wallet button styling */
 .wallet-connect-btn button {
   background-color: var(--accent) !important;
-  color: var(--ink) !important;
-  font-weight: 700 !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
   text-transform: uppercase !important;
-  border: 2px solid var(--stroke) !important;
-  box-shadow: 5px 5px 0px 0px rgba(26, 26, 26, 1) !important;
+  border: 1px solid var(--stroke) !important;
+  border-radius: 9999px !important;
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.15) !important;
   padding: 0.55rem 1.35rem !important;
   transition: all 0.2s !important;
   font-family: var(--font-mono) !important;
@@ -52,9 +53,9 @@ button {
 }
 
 .wallet-connect-btn button:hover {
-  background-color: #ff8c3a !important;
-  transform: translate(2px, 2px) !important;
-  box-shadow: 3px 3px 0px 0px rgba(26, 26, 26, 1) !important;
+  background-color: #0284c7 !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 6px 16px rgba(14, 165, 233, 0.25) !important;
 }
 
 /* ===== GLOBAL SCROLLBAR STYLING ===== */

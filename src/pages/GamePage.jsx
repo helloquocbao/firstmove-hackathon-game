@@ -1171,6 +1171,8 @@ export default function GamePage() {
         <span className="game-cloud game-cloud--a" />
         <span className="game-cloud game-cloud--b" />
         <span className="game-cloud game-cloud--c" />
+        <span className="game-cloud game-cloud--d" />
+        <span className="game-cloud game-cloud--e" />
         <span className="game-haze" />
       </div>
 

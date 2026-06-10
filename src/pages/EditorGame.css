@@ -1,25 +1,25 @@
-/* ===== DARK GAMING EDITOR PAGE ===== */
+/* ===== BRIGHT GAMING EDITOR PAGE ===== */
 .editor-page {
   position: relative;
   overflow: hidden;
   min-height: 100vh;
   color: var(--land-text);
-  --land-bg-dark: #0a1929;
-  --land-bg-mid: #0d2137;
-  --land-bg-light: #1a3a5c;
-  --land-accent: #59b7ff;
-  --land-accent-glow: rgba(89, 183, 255, 0.4);
-  --land-accent-2: #f6a44b;
-  --land-accent-2-glow: rgba(246, 164, 75, 0.4);
-  --land-text: #e8f4ff;
-  --land-text-muted: #7eb8e8;
-  --land-border: rgba(126, 184, 232, 0.2);
-  --land-card: rgba(13, 33, 55, 0.9);
+  --land-bg-dark: #f0f9ff;
+  --land-bg-mid: #e0f2fe;
+  --land-bg-light: #ffffff;
+  --land-accent: #0ea5e9;
+  --land-accent-glow: rgba(14, 165, 233, 0.15);
+  --land-accent-2: #f97316;
+  --land-accent-2-glow: rgba(249, 115, 22, 0.15);
+  --land-text: #0f172a;
+  --land-text-muted: #475569;
+  --land-border: rgba(14, 165, 233, 0.15);
+  --land-card: rgba(255, 255, 255, 0.75);
   --ink: var(--land-text);
   --muted: var(--land-text-muted);
   --stroke: var(--land-border);
-  --accent: var(--land-accent-2);
-  --accent-2: var(--land-accent);
+  --accent: var(--land-accent);
+  --accent-2: var(--land-accent-2);
   --card: var(--land-card);
   background: linear-gradient(
     180deg,
@@ -35,8 +35,8 @@
   position: fixed;
   inset: 0;
   background-image:
-    linear-gradient(rgba(126, 184, 232, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(126, 184, 232, 0.03) 1px, transparent 1px);
+    linear-gradient(rgba(14, 165, 233, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(14, 165, 233, 0.04) 1px, transparent 1px);
   background-size: 60px 60px;
   mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black, transparent);
   pointer-events: none;
@@ -50,12 +50,12 @@
   background:
     radial-gradient(
       ellipse 80% 50% at 50% 0%,
-      rgba(89, 183, 255, 0.08),
+      rgba(14, 165, 233, 0.1),
       transparent
     ),
     radial-gradient(
       ellipse 60% 40% at 80% 20%,
-      rgba(89, 183, 255, 0.05),
+      rgba(14, 165, 233, 0.08),
       transparent
     );
   pointer-events: none;
@@ -77,13 +77,22 @@
 /* ===== NAVIGATION ===== */
 .editor-nav {
   position: sticky;
-  top: 0;
+  top: 16px; /* Floating slightly below the top */
+  height: 64px; /* Slim profile */
+  margin: 16px 0 0 0;
+  padding: 0 24px;
   z-index: 100;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  padding: 20px 0;
+  border-radius: 9999px; /* Capsule pill shape */
+  border: 1px solid rgba(14, 165, 233, 0.15);
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 
+    0 10px 30px rgba(14, 165, 233, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 .editor-nav .header-right {
@@ -174,20 +183,19 @@
 }
 
 .editor-nav__links a {
-  padding: 10px 18px;
-  border-radius: 8px;
-  border: 1px solid var(--land-border);
-  background: rgba(126, 184, 232, 0.05);
+  padding: 8px 18px;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  background: transparent;
   color: var(--land-text-muted);
   transition: all 0.3s ease;
   text-decoration: none;
 }
 
 .editor-nav__links a:hover {
-  border-color: var(--land-accent);
-  background: rgba(89, 183, 255, 0.1);
-  color: var(--land-text);
-  box-shadow: 0 0 20px var(--land-accent-glow);
+  border-color: rgba(14, 165, 233, 0.15);
+  background: rgba(14, 165, 233, 0.06);
+  color: var(--land-accent);
 }
 
 /* ===== CONNECT BUTTON OVERRIDE ===== */

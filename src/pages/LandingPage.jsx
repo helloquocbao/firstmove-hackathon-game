@@ -1,3 +1,6 @@
+// Reading this as: Web3 indie game landing page for builders & players, with a bright sky-blue / cloud-white clean gaming language, leaning toward custom grid layout, responsive bento, and playful motion.
+/* DESIGN_VARIANCE: 7 | MOTION_INTENSITY: 6 | VISUAL_DENSITY: 4 */
+
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Transaction } from "@mysten/sui/transactions";
@@ -7,52 +10,19 @@ import {
 } from "@mysten/dapp-kit";
 import { REWARD_VAULT_ID, PACKAGE_ID } from "../chain/config";
 import { WalletHeader } from "../components";
+import { 
+  Gamepad2, 
+  Wrench, 
+  Globe, 
+  Coins, 
+  ArrowRight,
+  Sparkles,
+  ShieldCheck,
+  Compass,
+  Store,
+  Blocks
+} from "lucide-react";
 import "./LandingPage.css";
-
-const features = [
-  {
-    title: "🏔️ Stone Chunks",
-    description:
-      "Mint 5×5 rock tiles as NFTs. Build floating islands in the sky.",
-  },
-  {
-    title: "🎨 Carve & Paint",
-    description:
-      "Edit tiles live on-chain. Every pixel you place is truly yours.",
-  },
-  {
-    title: "⚔️ Play & Earn",
-    description:
-      "Explore on-chain worlds. Find hidden keys and claim CHUNK rewards.",
-  },
-];
-
-const gameFeatures = [
-  {
-    icon: "🌍",
-    title: "On-Chain Worlds",
-    description:
-      "Every map chunk lives permanently on Sui blockchain. Trade or expand your territory.",
-  },
-  {
-    icon: "🎮",
-    title: "Adventure Mode",
-    description:
-      "WASD movement, combat system. Explore worlds built by the community.",
-  },
-  {
-    icon: <img src="https://ik.imagekit.io/huubao/chunk_coin.png" alt="logo" className="w-12 h-12 mt-3" />,
-    title: "Token Rewards",
-    description:
-      "Find hidden keys, claim CHUNK tokens, and earn while you play.",
-  },
-  {
-    icon: "🔧",
-    title: "Map Editor",
-    description:
-      "Powerful tile editor with decoration layers. Design your dream world.",
-  },
-];
 
 export default function LandingPage() {
   const account = useCurrentAccount();
@@ -86,186 +56,222 @@ export default function LandingPage() {
 
   return (
     <div className="landing">
+      {/* Animated Space Sky Background */}
       <div className="landing__bg">
         <span className="landing__sky" />
         <span className="landing__sun" />
-        <span className="landing__cloud landing__cloud--a" />
-        <span className="landing__cloud landing__cloud--b" />
-        <span className="landing__cloud landing__cloud--c" />
+        <span className="landing__grid" />
+        <span className="landing__nebula" />
         <span className="landing__mist" />
       </div>
 
       <div className="landing__content">
-        {/* Navigation */}
-        <header
-          className="landing__nav landing__reveal"
-          style={{ "--delay": "0s" }}
-        >
+        {/* Navigation Bar (Single Line, <80px height) */}
+        <header className="landing__nav">
           <div className="brand">
-            <img src="https://ik.imagekit.io/huubao/chunk_coin.png" alt="logo" className="w-12 h-12" />
-            <div>
-              <div className="brand__name">Chunk World</div>
-              <div className="brand__tag">Sky Adventures on Sui</div>
+            <img 
+              src="https://ik.imagekit.io/huubao/chunk_coin.png" 
+              alt="Chunk World logo" 
+              className="brand__img" 
+            />
+            <div className="brand__text">
+              <span className="brand__name">Chunk World</span>
+              <span className="brand__tag">Sky Adventures</span>
             </div>
           </div>
 
           <nav className="landing__links">
-            <Link to="/editor">Editor</Link>
-            <Link to="/game">Play Now</Link>
-            <Link to="/marketplace">Marketplace</Link>
+            <Link to="/game" className="nav-link">Play</Link>
+            <Link to="/editor" className="nav-link">Editor</Link>
+            <Link to="/marketplace" className="nav-link">Marketplace</Link>
           </nav>
 
-          <WalletHeader />
+          <div className="nav-actions">
+            <WalletHeader />
+          </div>
         </header>
 
-        {/* Hero Section */}
+        {/* Hero Section (Fits in viewport) */}
         <section className="landing__hero">
           <div className="hero__copy">
-            <div
-              className="hero__badge landing__reveal"
-              style={{ "--delay": "0.1s" }}
-            >
-              <span className="badge__dot" />
+            <div className="hero__badge">
+              <Sparkles className="badge__icon" size={12} strokeWidth={2} />
               <span>Powered by Sui Blockchain</span>
             </div>
 
-            <h1
-              className="hero__title landing__reveal"
-              style={{ "--delay": "0.15s" }}
-            >
-              Build your <span className="hero__accent">sky world</span>, one
-              chunk at a time.
+            <h1 className="hero__title">
+              Build your <span className="hero__accent">sky world</span>.
             </h1>
 
-            <p
-              className="hero__subtitle landing__reveal"
-              style={{ "--delay": "0.2s" }}
-            >
-              Claim rocky chunks, carve tiles, and trade them as NFTs. Every
-              update lands on Sui and appears instantly in the game loop. Your
-              creativity, permanently on-chain.
+            <p className="hero__subtitle">
+              Mine chunks, paint tiles, and explore floating worlds on Sui. Your creativity, on-chain.
             </p>
 
-            <div
-              className="hero__cta landing__reveal"
-              style={{ "--delay": "0.25s" }}
-            >
+            <div className="hero__cta">
               <Link className="btn btn--solid" to="/game">
-                🎮 Launch Game
+                <span>Launch Game</span>
+                <ArrowRight size={14} strokeWidth={2} />
               </Link>
               <Link className="btn btn--ghost" to="/editor">
-                🔧 Open Editor
+                <span>Open Editor</span>
               </Link>
             </div>
-
-            <div
-              className="hero__features landing__reveal"
-              style={{ "--delay": "0.3s" }}
-            >
-              {features.map((feature) => (
-                <div key={feature.title} className="feature">
-                  <div className="feature__title">{feature.title}</div>
-                  <div className="feature__desc">{feature.description}</div>
-                </div>
-              ))}
-            </div>
           </div>
 
-          <div
-            className="hero__panel landing__reveal"
-            style={{ "--delay": "0.2s" }}
-          >
-            <div className="panel__header">
-              <div>
-                <div className="panel__eyebrow">Character Preview</div>
-                <div className="panel__title">Your Hero Awaits</div>
-              </div>
-              <div className="panel__tag">Sui</div>
-            </div>
-
-            <div className="panel__preview">
-              {/* Character animation is in CSS */}
-            </div>
-
-            <div className="panel__highlights">
-              <div className="panel__highlight">
-                <span className="highlight__icon">⛏️</span>
-                <span>5×5 Chunk Tiles</span>
-              </div>
-              <div className="panel__highlight">
-                <span className="highlight__icon">🔗</span>
-                <span>Fully On-Chain</span>
-              </div>
-              <div className="panel__highlight">
-                <span className="highlight__icon">💰</span>
-                <span>Earn CHUNK Tokens</span>
+          {/* Hero Visual Showcase */}
+          <div className="hero__showcase">
+            <div className="showcase__wrapper">
+              <img 
+                src="/sky_island_bright.png" 
+                alt="Sky island preview" 
+                className="showcase__img" 
+              />
+              <div className="showcase__overlay">
+                <div className="showcase__badge">
+                  <ShieldCheck size={12} strokeWidth={2} />
+                  <span>On-Chain Island Preview</span>
+                </div>
               </div>
             </div>
           </div>
         </section>
 
-        {/* Features Grid Section */}
-        <section
-          className="landing__features landing__reveal"
-          style={{ "--delay": "0.35s" }}
-        >
-          <div className="features__header">
-            <h2 className="features__title">Why Chunk World?</h2>
-            <p className="features__subtitle">
-              A new kind of gaming experience where players truly own their
-              world.
+        {/* 1. Exploration & Adventure Section (Left Image, Right Copy) */}
+        <section className="landing__section split-feature">
+          <div className="feature__showcase">
+            <div className="showcase__wrapper">
+              <img 
+                src="/game_explore.png" 
+                alt="WASD Gameplay preview" 
+                className="showcase__img" 
+              />
+            </div>
+          </div>
+          
+          <div className="feature__copy">
+            <div className="feature__icon-wrapper bg-emerald-100 text-emerald-600">
+              <Gamepad2 size={24} strokeWidth={1.5} />
+            </div>
+            <h2 className="section-title">Explore Sky Islands</h2>
+            <p className="section-desc">
+              Control your hero in real-time with WASD movement. Traverse floating bridges, navigate portals, and explore maps made by other builders on-chain.
+            </p>
+            <ul className="feature__bullets">
+              <li>
+                <Compass size={16} strokeWidth={2} className="text-emerald-500" />
+                <span>Real-time multiplayer lobbies</span>
+              </li>
+              <li>
+                <Blocks size={16} strokeWidth={2} className="text-emerald-500" />
+                <span>Discover hidden keys and portals</span>
+              </li>
+            </ul>
+          </div>
+        </section>
+
+        {/* 2. World Editor Section (Vertical Bento Layout, breaks zigzag) */}
+        <section className="landing__section vertical-feature">
+          <div className="features__header text-center">
+            <span className="features__eyebrow">WORLD MAKER</span>
+            <h2 className="features__title">The On-Chain Map Editor</h2>
+            <p className="section-desc max-w-xl mx-auto mt-4 text-center">
+              A powerful building tool in your browser. Carve chunks, detail terrain layers, and publish directly to the Sui blockchain.
             </p>
           </div>
-          <div className="features__grid">
-            {gameFeatures.map((feature) => (
-              <div key={feature.title} className="feature-card">
-                <div className="feature-card__icon flex justify-center">{feature.icon}</div>
-                <div className="feature-card__title">{feature.title}</div>
-                <div className="feature-card__desc">{feature.description}</div>
+
+          <div className="editor-showcase__grid">
+            <div className="editor-showcase__image-box">
+              <img 
+                src="/game_editor.png" 
+                alt="World Editor Showcase" 
+                className="editor-showcase__img" 
+              />
+            </div>
+            <div className="editor-showcase__details">
+              <div className="detail-card">
+                <Wrench className="text-orange-500" size={20} strokeWidth={2} />
+                <h4>Stone Carving</h4>
+                <p>Modify 5×5 tile blocks on-chain with detailed stone engravings and textures.</p>
               </div>
-            ))}
+              <div className="detail-card">
+                <Sparkles className="text-orange-500" size={20} strokeWidth={2} />
+                <h4>Terrain Painting</h4>
+                <p>Colorize chunks and paint grass, water paths, and custom environment tiles.</p>
+              </div>
+            </div>
           </div>
         </section>
 
-        {/* CTA Section */}
-        <section
-          className="landing__cta landing__reveal"
-          style={{ "--delay": "0.4s" }}
-        >
+        {/* 3. Marketplace & Economy Section (Right Image, Left Copy) */}
+        <section className="landing__section split-feature split-feature--reverse">
+          <div className="feature__copy">
+            <div className="feature__icon-wrapper bg-amber-100 text-amber-600">
+              <Coins size={24} strokeWidth={1.5} />
+            </div>
+            <h2 className="section-title">Sky Island Trading Post</h2>
+            <p className="section-desc">
+              Trade your custom-designed chunks as NFTs. Connect with other players in the game marketplace to purchase floating real estate and expand your territory.
+            </p>
+            <ul className="feature__bullets">
+              <li>
+                <Store size={16} strokeWidth={2} className="text-amber-500" />
+                <span>Secure smart contract auction listings</span>
+              </li>
+              <li>
+                <Globe size={16} strokeWidth={2} className="text-amber-500" />
+                <span>$CHUNK utility token rewards integrated</span>
+              </li>
+            </ul>
+          </div>
+
+          <div className="feature__showcase">
+            <div className="showcase__wrapper">
+              <img 
+                src="/game_market.png" 
+                alt="Sky Trading Post Marketplace" 
+                className="showcase__img" 
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* Faucet / Call to Action Section */}
+        <section className="landing__cta">
           <div className="cta__content">
-            <h2 className="cta__title">Ready to Build?</h2>
+            <h2 className="cta__title">Claim Your First Chunk</h2>
             <p className="cta__subtitle">
-              Connect your wallet and start creating your piece of the sky
-              world.
+              Connect your Sui wallet to request faucet tokens and begin carving your floating island.
             </p>
             <div className="cta__actions">
-              <Link className="btn btn--solid" to="/game">
-                Start Playing
-              </Link>
-              <Link className="btn btn--ghost" to="/editor">
-                Create Maps
-              </Link>
               <button
                 className="btn btn--solid"
                 onClick={() => handleFaucet(50)}
                 disabled={isClaiming}
               >
-                {isClaiming ? "Claiming..." : "Faucet 50 CHUNK"}
+                <span>{isClaiming ? "Claiming CHUNK..." : "Claim 50 CHUNK"}</span>
+                <Coins size={14} strokeWidth={2} />
               </button>
+              <Link className="btn btn--ghost" to="/game">
+                <span>Enter Sky World</span>
+              </Link>
             </div>
-            {faucetStatus && <p className="cta__note">{faucetStatus}</p>}
+            {faucetStatus && (
+              <div className="cta__status">
+                <span className="status__dot" />
+                <p className="status__text">{faucetStatus}</p>
+              </div>
+            )}
           </div>
         </section>
 
         {/* Footer */}
-        <footer
-          className="landing__footer landing__reveal"
-          style={{ "--delay": "0.45s" }}
-        >
-          <div>Build together. Own your world. Play on Sui.</div>
-          <div className="landing__foot-links">
-            <Link to="/editor">Editor</Link>
+        <footer className="landing__footer">
+          <div className="footer__info">
+            <span>Chunk World © 2026. Made with love on Sui.</span>
+          </div>
+          <div className="footer__links">
             <Link to="/game">Play</Link>
+            <Link to="/editor">Editor</Link>
             <Link to="/marketplace">Marketplace</Link>
           </div>
         </footer>
